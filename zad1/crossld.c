@@ -7,13 +7,18 @@
 #include <string.h>
 #include <sys/mman.h>
 #include <fcntl.h>
+#include <linux/limits.h>
 #include <elf.h>
 #include "crossld.h"
+
+#define STACK_SIZE 40960
 
 int64_t PAGE_SIZE;
 
 #define PAGESTART(_v) ((_v) & ~(PAGE_SIZE - 1))
 #define PAGEOFFSET(_v) ((_v) & (PAGE_SIZE - 1))
+
+extern void run32(void* code, void* stack);
 
 static void err(const char *err)
 {
@@ -95,10 +100,20 @@ void* readelf(const char *fname) {
 
 int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     PAGE_SIZE = sysconf(_SC_PAGESIZE);
+    int fname_len = strlen(fname);
+    if(fname_len > PATH_MAX) err("file doesn't exist - too long file path");
     void(*entry)(void) = readelf(fname);
     //Happy (one-way) jump
-    if(entry != NULL)
-        entry();
+    if(entry != NULL) {
+        void* stack;
+        if((stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)) == MAP_FAILED)
+            err("stack map");
+        //stack = (void*) (((uint64_t) stack) + 4096 - 4);
+        
+        //pass program name - 0 argument
+        strcpy(stack + STACK_SIZE - 8 - fname_len, fname);
+        run32(entry, stack + STACK_SIZE - fname_len - 16);
+    }
     return 0;
 }
 

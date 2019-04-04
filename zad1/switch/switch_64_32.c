@@ -1,4 +1,5 @@
 /* gcc -o switch_64_32 switch_64_32.c -fno-pic -no-pie */
+#define _DEFAULT_SOURCE
 #include <sys/mman.h>
 #include <string.h>
 #include <stdio.h>
