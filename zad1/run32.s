@@ -13,7 +13,7 @@ switch32:
     leal 8(%esp), %eax
     pushl %eax
     //argc
-    pushl $1
+    pushl $0
     pushl %edi
     ret
     

@@ -1,6 +1,8 @@
-#include <unistd.h>
+
+char *hello = "Hello World!\n";
+
+extern int write();
 
 int main() {
-    write(1, "Hello World!\n" ,13);
-    return 0;
+    return write();
 }
