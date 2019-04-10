@@ -57,7 +57,7 @@ switch64:
     mov    %r10, %r12
     shl    $3, %r12
     sub    %r12, %rsp   #alloc memory for agruments on stack
-    and    $-15, %rsp   #align stack
+    and    $-15, %rsp   #align stack TODO -not working
     mov    %rsp, %r12
 arg_loop:
     call   extract_arg
@@ -73,7 +73,7 @@ arg_end:
     mov    %rax, %rdx
     shr    $32, %rdx    #pass upper half of rax in edx
 finish:
-    sub    0x4, %rsp
+    sub    $0x4, %rsp
     movl   $0x23, 0x4(%rsp)
     lea    back32 - begin(%ebx), %r11
     mov    %r11d, (%rsp)

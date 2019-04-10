@@ -12,7 +12,7 @@
 #include "crossld.h"
 
 #define STACK_SIZE 4096000
-#define TEMPLATE_SIZE 260
+#define TEMPLATE_SIZE 256
 #define TEMPLATE_DATA 21
 
 int64_t PAGE_SIZE;
