@@ -11,5 +11,4 @@ hello_world: hello_world.c write.S
 trampoline.bin: trampoline.S
 	as -o trampoline.o trampoline.S
 	ld --oformat binary -o trampoline.bin trampoline.o
-	rm trampoline.o
 	#objcopy -O binary trampoline.elf trampoline.bin

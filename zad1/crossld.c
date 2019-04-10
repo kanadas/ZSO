@@ -11,8 +11,9 @@
 #include <elf.h>
 #include "crossld.h"
 
-#define STACK_SIZE 40960
-#define TEMPLATE_SIZE 265
+#define STACK_SIZE 4096000
+#define TEMPLATE_SIZE 260
+#define TEMPLATE_DATA 21
 
 int64_t PAGE_SIZE;
 
@@ -34,8 +35,8 @@ int ntramps = 0;
 static void free_tramps() {
     if(tramps == NULL) return;
     for(int i = 0; i < ntramps; ++i) {
-        free(((uint8_t**)tramps[i].code_ptr)[0]);
-        munmap((void*)tramps[i].code_ptr, TEMPLATE_SIZE);
+        free(((uint8_t**)(tramps[i].code_ptr - TEMPLATE_DATA))[0]);
+        munmap((void*)(tramps[i].code_ptr - TEMPLATE_DATA), TEMPLATE_SIZE);
     }
     free(tramps);
 }
@@ -59,7 +60,7 @@ static void free_mappings() {
 
 static void err(const char *err)
 {
-    fprintf(stderr, "%s: %s\n", err, strerror(errno));
+    fprintf(stderr, "%s: %d %s\n", err, errno, strerror(errno));
     exit(1);
 }
 
@@ -109,14 +110,20 @@ void* readelf(const char *fname) {
     
     //loading elf program headers
     //for loader
-    if((p_hdr = mmap(NULL, e_hdr.e_phentsize * e_hdr.e_phnum, PROT_READ, MAP_PRIVATE, fd, e_hdr.e_phoff)) == MAP_FAILED)
-        err("mmap program headers");
-    add_mapping(p_hdr, e_hdr.e_phentsize * e_hdr.e_phnum);
+//    if((p_hdr = mmap(NULL, e_hdr.e_phentsize * e_hdr.e_phnum, PROT_READ, MAP_PRIVATE, fd, e_hdr.e_phoff)) == MAP_FAILED)
+    //add_mapping(p_hdr, e_hdr.e_phentsize * e_hdr.e_phnum);
+    uint32_t p_hdr_s = e_hdr.e_phentsize * e_hdr.e_phnum;
+    if((p_hdr = malloc(p_hdr_s)) == NULL) 
+        free_err("malloc"); 
+    if(pread(fd, p_hdr, p_hdr_s, e_hdr.e_phoff) == -1) {
+        free(p_hdr);
+        free_err("mmap program headers");
+    }
     short loaded = 0;
     void *map_start, *map_ptr;
     ssize_t map_size;
     int map_offset;
-    for(int i = 0; i < e_hdr.e_phnum; ++i) 
+    for(int i = 0; i < e_hdr.e_phnum; ++i) {
         if(p_hdr[i].p_type == PT_LOAD) {
             loaded = 1;
             int flags = 0;
@@ -128,6 +135,7 @@ void* readelf(const char *fname) {
             map_offset = p_hdr[i].p_offset - PAGEOFFSET(p_hdr[i].p_vaddr);
             if((map_ptr = mmap(map_start, map_size, flags, MAP_PRIVATE, fd, map_offset)) != map_start) {
                 if(map_ptr != NULL) munmap(map_ptr, map_size);
+                free(p_hdr);
                 free_err("mmap page");
             }
             add_mapping(map_start, map_size);
@@ -146,14 +154,25 @@ void* readelf(const char *fname) {
                 } if(rest < bss_s) {
                     if((map_ptr = mmap(bss_b, bss_s - rest, flags, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0)) != bss_b) {
                         if(map_ptr != NULL) munmap(map_ptr, bss_s - rest);
+                        free(p_hdr);
                         free_err("mmap bss");
-                }
+                    }
                     add_mapping(bss_b, bss_s - rest);
+                }
             }
         } else if(p_hdr[i].p_type == PT_DYNAMIC) {
-            if((dyn = mmap(NULL, p_hdr[i].p_memsz, PROT_READ, MAP_PRIVATE, fd, p_hdr[i].p_offset)) == MAP_FAILED)
-                free_err("mmap dynamic section");
-            add_mapping(dyn, p_hdr[i].p_memsz);
+            //if((dyn = mmap(NULL, p_hdr[i].p_memsz, PROT_READ, MAP_PRIVATE, fd, p_hdr[i].p_offset)) == MAP_FAILED)
+            //    free_err("mmap dynamic section");
+            //add_mapping(dyn, p_hdr[i].p_memsz);
+            if((dyn = malloc(p_hdr[i].p_memsz)) == NULL) {
+                free(p_hdr);
+                free_err("malloc dynamic section");
+            }
+            if(pread(fd, dyn, p_hdr[i].p_memsz, p_hdr[i].p_offset) == -1) {
+                free(dyn);
+                free(p_hdr);
+                free_err("pread dynamic section");
+            }
             for(int i = 0; dyn[i].d_tag != DT_NULL; ++i) {
                 switch (dyn[i].d_tag) {
                     case DT_JMPREL:     //.rel.plt address
@@ -175,6 +194,7 @@ void* readelf(const char *fname) {
                     //    str_s = dyn[i].d_un.d_val;
                 }
             }
+            free(dyn);
         }
     }
     if(!loaded) return NULL;
@@ -189,6 +209,7 @@ void* readelf(const char *fname) {
                }
         }
     }
+    free(p_hdr);
     return (void*)e_hdr.e_entry;
 }
 
@@ -224,7 +245,7 @@ uint32_t create_trampoline(const struct function *fun) {
         munmap(f, TEMPLATE_SIZE);
         free_err("mprotect");
     }
-    return (uint32_t)f;
+    return (uint32_t)f + TEMPLATE_DATA;
 }
 
 int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
@@ -253,7 +274,15 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     return 0;
 }
 
-int main() {
-    crossld_start("hello/hello-32", NULL, 0);
+static void print(char *data) {
+    printf("%s\n", data);
+}
+
+int main() { 
+    enum type print_types[] = {TYPE_PTR};
+    struct function funcs[] = {
+        {"print", print_types, 1, TYPE_VOID, print},
+    };
+    crossld_start("hello/hello-32", funcs, 1);
     return 0;
 }
