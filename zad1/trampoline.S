@@ -1,3 +1,5 @@
+.global begin, param_t, arg_cnt, fun_addr, ret_t, trampoline, trampoline_end
+
 .text
 begin:
 param_t: .zero 8    #pointer to byte array of argument types
@@ -6,7 +8,7 @@ fun_addr: .zero 8   #function address
 ret_t: .byte -1     #return type (0 => 32 bits (or void), otherwise 64 bits)
 
 .code32
-_start:
+trampoline:
     push   %ebp
     mov    %esp, %ebp
     push   %ebx
@@ -109,3 +111,4 @@ extract_fin:
     inc    %r15
     ret
 
+trampoline_end:

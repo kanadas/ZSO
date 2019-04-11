@@ -1,6 +1,10 @@
 .global run32
 .global return32
 .type run32, @function
+.type return32, @function
+
+.data
+old_stack: .quad 0
 
 .code32
 switch32:
@@ -26,18 +30,16 @@ run32:
     push %r13
     push %r14
     push %r15
-    mov %rsp, %r11
+    movq %rsp, old_stack
     movq %rsi, %rsp
-    subq $8, %rsp
-    movq %r11, 8(%rsp)
+    subq $4, %rsp
     movl $0x23, 4(%rsp)
     movq $switch32, %rax
     movl %eax, (%rsp)
     lret
 
 return32:
-    #TODO remember old stack pointer - this do not work
-    pop %rsp
+    movq old_stack, %rsp
     pop %r15
     pop %r14
     pop %r13

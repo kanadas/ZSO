@@ -36,7 +36,7 @@ int ntramps = 0;
 static void free_tramps() {
     if(tramps == NULL) return;
     for(int i = 0; i < ntramps; ++i) {
-        free(((uint8_t**)(tramps[i].code_ptr - TEMPLATE_DATA))[0]);
+        free(*((uint8_t**)(tramps[i].code_ptr - TEMPLATE_DATA)));
         munmap((void*)(tramps[i].code_ptr - TEMPLATE_DATA), TEMPLATE_SIZE);
     }
     free(tramps);
@@ -260,7 +260,7 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     tramp_fd = open("trampoline.bin", O_RDONLY);
     
     //create trampolines
-    tramps = (rel_fun*)malloc(sizeof(rel_fun)*nfuncs);
+    tramps = (rel_fun*)malloc(sizeof(rel_fun)*(nfuncs + 1));
     for(ntramps = 0; ntramps < nfuncs; ++ntramps) {
         tramps[ntramps].code_ptr = create_trampoline(funcs + ntramps);
         tramps[ntramps].name = funcs[ntramps].name;
@@ -292,14 +292,15 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     return 0;
 }
 
-static void print(char *data) {
+static int print(char *data) {
     printf("%s\n", data);
+    return 77;
 }
 
-int main() { 
+int main() {
     enum type print_types[] = {TYPE_PTR};
     struct function funcs[] = {
-        {"print", print_types, 1, TYPE_VOID, print},
+        {"print", print_types, 1, TYPE_INT, print},
     };
     int ret = crossld_start("hello/hello-32", funcs, 1);
     printf("Crossld returned: %d\n", ret);
