@@ -1,4 +1,5 @@
 .global run32
+.global return32
 .type run32, @function
 
 .code32
@@ -16,14 +17,15 @@ switch32:
     pushl $0
     pushl %edi
     ret
-    
-    //It won't return - this code is for recycling
-    pushl $0x33
-    pushl $back64
-    lret
-    
+
 .code64
 run32:
+    push %rbx
+    push %rbp
+    push %r12
+    push %r13
+    push %r14
+    push %r15
     mov %rsp, %r11
     movq %rsi, %rsp
     subq $8, %rsp
@@ -33,6 +35,14 @@ run32:
     movl %eax, (%rsp)
     lret
 
-back64:
+return32:
+    #TODO remember old stack pointer - this do not work
     pop %rsp
+    pop %r15
+    pop %r14
+    pop %r13
+    pop %r12
+    pop %rbp
+    pop %rbx
+    mov %edi, %eax
     ret

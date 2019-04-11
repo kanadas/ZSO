@@ -12,7 +12,7 @@
 #include "crossld.h"
 
 #define STACK_SIZE 4096000
-#define TEMPLATE_SIZE 256
+#define TEMPLATE_SIZE 257
 #define TEMPLATE_DATA 21
 
 int64_t PAGE_SIZE;
@@ -20,7 +20,8 @@ int64_t PAGE_SIZE;
 #define PAGESTART(_v) ((_v) & ~(PAGE_SIZE - 1))
 #define PAGEOFFSET(_v) ((_v) & (PAGE_SIZE - 1))
 
-extern void run32(void* code, void* stack);
+extern int run32(void* code, void* stack);
+extern void return32(int* status);
 
 int tramp_fd;
 
@@ -71,6 +72,11 @@ static void free_err(const char *err_msg)
     err(err_msg);
 }
 
+static void close_free_err(const char *err_msg, int fd) {
+    close(fd);
+    free_err(err_msg);
+}
+
 static void add_mapping(void* ptr, ssize_t len) {
     if(mappings_num >= mappings_len) {
         mapping *n_map;
@@ -99,25 +105,22 @@ void* readelf(const char *fname) {
     if((fd = open(fname, O_RDONLY)) == -1) 
         err("open file");
     if(read(fd, &e_hdr, sizeof(e_hdr)) != sizeof(e_hdr)) 
-        err("read header");
-    if(memcmp(e_hdr.e_ident, ELFMAG, SELFMAG)) err("not an elf - wrong magic");
+        close_free_err("read header", fd);
+    if(memcmp(e_hdr.e_ident, ELFMAG, SELFMAG)) close_free_err("not an elf - wrong magic", fd);
     if(e_hdr.e_ident[EI_CLASS] != ELFCLASS32) 
-        err("not 32-bit binary");
+        close_free_err("not 32-bit binary", fd);
     if(e_hdr.e_type != ET_EXEC) 
-        err("not ET_EXEC");
+        close_free_err("not ET_EXEC", fd);
     if(e_hdr.e_machine != EM_386) 
-        err("not i386 binary");
+        close_free_err("not i386 binary", fd);
     
     //loading elf program headers
-    //for loader
-//    if((p_hdr = mmap(NULL, e_hdr.e_phentsize * e_hdr.e_phnum, PROT_READ, MAP_PRIVATE, fd, e_hdr.e_phoff)) == MAP_FAILED)
-    //add_mapping(p_hdr, e_hdr.e_phentsize * e_hdr.e_phnum);
     uint32_t p_hdr_s = e_hdr.e_phentsize * e_hdr.e_phnum;
     if((p_hdr = malloc(p_hdr_s)) == NULL) 
-        free_err("malloc"); 
+        close_free_err("malloc", fd); 
     if(pread(fd, p_hdr, p_hdr_s, e_hdr.e_phoff) == -1) {
         free(p_hdr);
-        free_err("mmap program headers");
+        close_free_err("mmap program headers", fd);
     }
     short loaded = 0;
     void *map_start, *map_ptr;
@@ -136,7 +139,7 @@ void* readelf(const char *fname) {
             if((map_ptr = mmap(map_start, map_size, flags, MAP_PRIVATE, fd, map_offset)) != map_start) {
                 if(map_ptr != NULL) munmap(map_ptr, map_size);
                 free(p_hdr);
-                free_err("mmap page");
+                close_free_err("mmap page" ,fd);
             }
             add_mapping(map_start, map_size);
             //BSS
@@ -161,9 +164,6 @@ void* readelf(const char *fname) {
                 }
             }
         } else if(p_hdr[i].p_type == PT_DYNAMIC) {
-            //if((dyn = mmap(NULL, p_hdr[i].p_memsz, PROT_READ, MAP_PRIVATE, fd, p_hdr[i].p_offset)) == MAP_FAILED)
-            //    free_err("mmap dynamic section");
-            //add_mapping(dyn, p_hdr[i].p_memsz);
             if((dyn = malloc(p_hdr[i].p_memsz)) == NULL) {
                 free(p_hdr);
                 free_err("malloc dynamic section");
@@ -171,7 +171,7 @@ void* readelf(const char *fname) {
             if(pread(fd, dyn, p_hdr[i].p_memsz, p_hdr[i].p_offset) == -1) {
                 free(dyn);
                 free(p_hdr);
-                free_err("pread dynamic section");
+                close_free_err("pread dynamic section", fd);
             }
             for(int i = 0; dyn[i].d_tag != DT_NULL; ++i) {
                 switch (dyn[i].d_tag) {
@@ -197,6 +197,9 @@ void* readelf(const char *fname) {
             free(dyn);
         }
     }
+
+    close(fd);
+
     if(!loaded) return NULL;
     if(rel_ptr != 0 && rel_s > 0) {
         Elf32_Sym sym;
@@ -215,10 +218,13 @@ void* readelf(const char *fname) {
 
 uint32_t create_trampoline(const struct function *fun) {
     void *f;
-    if((f = mmap(NULL, TEMPLATE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_32BIT, tramp_fd, 0)) == MAP_FAILED)
+    if((f = mmap(NULL, TEMPLATE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_32BIT, tramp_fd, 0)) == MAP_FAILED) {
+        close(tramp_fd);
         free_err("trampoline mmap");
+    }
     uint8_t *types;
     if((types = malloc(fun->nargs)) == NULL) {
+        close(tramp_fd);
         munmap(f, TEMPLATE_SIZE);
         free_err("trampoline malloc");
     }
@@ -241,6 +247,7 @@ uint32_t create_trampoline(const struct function *fun) {
     memcpy(f + 12, &(fun->code), 8);
     memcpy(f + 20, &ret_t, 1);
     if(mprotect(f, TEMPLATE_SIZE, PROT_READ | PROT_EXEC) == -1) {
+        close(tramp_fd);
         free(types);
         munmap(f, TEMPLATE_SIZE);
         free_err("mprotect");
@@ -249,28 +256,39 @@ uint32_t create_trampoline(const struct function *fun) {
 }
 
 int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
+    PAGE_SIZE = sysconf(_SC_PAGESIZE);
     tramp_fd = open("trampoline.bin", O_RDONLY);
+    
+    //create trampolines
     tramps = (rel_fun*)malloc(sizeof(rel_fun)*nfuncs);
     for(ntramps = 0; ntramps < nfuncs; ++ntramps) {
         tramps[ntramps].code_ptr = create_trampoline(funcs + ntramps);
         tramps[ntramps].name = funcs[ntramps].name;
     }
+    //create exit trampoline
+    enum type exit_types[] = {TYPE_INT};
+    struct function exit_funcs[] = {
+        {"exit", exit_types, 1, TYPE_VOID, return32},
+    };
+    tramps[ntramps].code_ptr = create_trampoline(exit_funcs);
+    tramps[ntramps++].name = "exit";
 
-    PAGE_SIZE = sysconf(_SC_PAGESIZE);
+    close(tramp_fd);
+
     int fname_len = strlen(fname);
     if(fname_len > PATH_MAX) err("file doesn't exist - too long file path");
     void(*entry)(void) = readelf(fname);
-    //Happy (one-way) jump
-    //TODO exit
     if(entry != NULL) {
         void* stack;
         if((stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)) == MAP_FAILED)
             err("stack map");
         //pass program name - 0 argument
         strcpy(stack + STACK_SIZE - 8 - fname_len, fname);
-        run32(entry, stack + STACK_SIZE - fname_len - 16);
+        int ret = run32(entry, stack + STACK_SIZE - fname_len - 16);
+        free_tramps();
+        free_mappings();
+        return ret;
     }
-
     return 0;
 }
 
@@ -283,6 +301,7 @@ int main() {
     struct function funcs[] = {
         {"print", print_types, 1, TYPE_VOID, print},
     };
-    crossld_start("hello/hello-32", funcs, 1);
+    int ret = crossld_start("hello/hello-32", funcs, 1);
+    printf("Crossld returned: %d\n", ret);
     return 0;
 }

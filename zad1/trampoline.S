@@ -32,6 +32,7 @@ back32:
     pop    %ebx
     mov    %ebp, %esp
     pop    %ebp
+    ret
 
 .code64
 switch64:
