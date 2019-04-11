@@ -12,8 +12,6 @@
 #include "crossld.h"
 
 #define STACK_SIZE 4096000
-#define TEMPLATE_SIZE 257
-#define TEMPLATE_DATA 21
 
 int64_t PAGE_SIZE;
 
@@ -23,7 +21,14 @@ int64_t PAGE_SIZE;
 extern int run32(void* code, void* stack);
 extern void return32(int* status);
 
-int tramp_fd;
+extern void *trampoline_end, *param_t, *arg_cnt, *fun_addr, *ret_t, *trampoline;
+
+#define TRAMPOLINE_SIZE (trampoline_end - trampoline)
+#define PARAM_T_OFFSET (param_t - trampoline)
+#define ARG_CNT_OFFSET (arg_cnt - trampoline)
+#define FUN_ADDR_OFFSET (fun_addr - trampoline)
+#define RET_T_OFFSET (ret_t - trampoline)
+#define TRAMPOLINE_OFFSET (trampoline - trampoline)
 
 typedef struct {
     uint32_t code_ptr;
@@ -36,8 +41,8 @@ int ntramps = 0;
 static void free_tramps() {
     if(tramps == NULL) return;
     for(int i = 0; i < ntramps; ++i) {
-        free(*((uint8_t**)(tramps[i].code_ptr - TEMPLATE_DATA)));
-        munmap((void*)(tramps[i].code_ptr - TEMPLATE_DATA), TEMPLATE_SIZE);
+        free(*((uint8_t**)(tramps[i].code_ptr + PARAM_T_OFFSET - TRAMPOLINE_OFFSET)));
+        munmap((void*)(tramps[i].code_ptr - TRAMPOLINE_OFFSET), TRAMPOLINE_SIZE);
     }
     free(tramps);
 }
@@ -218,14 +223,14 @@ void* readelf(const char *fname) {
 
 uint32_t create_trampoline(const struct function *fun) {
     void *f;
-    if((f = mmap(NULL, TEMPLATE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_32BIT, tramp_fd, 0)) == MAP_FAILED) {
-        close(tramp_fd);
+    if((f = mmap(NULL, TRAMPOLINE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_32BIT | MAP_ANONYMOUS, -1, 0)) == MAP_FAILED) {
+        printf("%p %p %ld\n", trampoline, trampoline_end, TRAMPOLINE_SIZE);
         free_err("trampoline mmap");
     }
+    memcpy(f, trampoline, TRAMPOLINE_SIZE);
     uint8_t *types;
     if((types = malloc(fun->nargs)) == NULL) {
-        close(tramp_fd);
-        munmap(f, TEMPLATE_SIZE);
+        munmap(f, TRAMPOLINE_SIZE);
         free_err("trampoline malloc");
     }
     for(int i = 0; i < fun->nargs; ++i) {
@@ -237,27 +242,25 @@ uint32_t create_trampoline(const struct function *fun) {
         else if(fun->args[i] == TYPE_UNSIGNED_LONG_LONG)
             types[i] = 3; //64bit unsigned
     }
-    uint8_t ret_t = 0;
+    uint8_t return_t = 0;
     //TODO when TYPE_PTR || TYPE_(UNSIGNED)_LONG check length of return (32 bytes)
     if(fun->result == TYPE_LONG_LONG || fun->result == TYPE_UNSIGNED_LONG_LONG) {
-        ret_t = 1;
+        return_t = 1;
     }
-    memcpy(f, &types, 8);
-    memcpy(f + 8, &(fun->nargs), 4);
-    memcpy(f + 12, &(fun->code), 8);
-    memcpy(f + 20, &ret_t, 1);
-    if(mprotect(f, TEMPLATE_SIZE, PROT_READ | PROT_EXEC) == -1) {
-        close(tramp_fd);
+    memcpy(f + PARAM_T_OFFSET, &types, 8);
+    memcpy(f + ARG_CNT_OFFSET, &(fun->nargs), 4);
+    memcpy(f + FUN_ADDR_OFFSET, &(fun->code), 8);
+    memcpy(f + RET_T_OFFSET, &return_t, 1);
+    if(mprotect(f, TRAMPOLINE_SIZE, PROT_READ | PROT_EXEC) == -1) {
         free(types);
-        munmap(f, TEMPLATE_SIZE);
+        munmap(f, TRAMPOLINE_SIZE);
         free_err("mprotect");
     }
-    return (uint32_t)f + TEMPLATE_DATA;
+    return (uint32_t)f + TRAMPOLINE_OFFSET;
 }
 
 int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     PAGE_SIZE = sysconf(_SC_PAGESIZE);
-    tramp_fd = open("trampoline.bin", O_RDONLY);
     
     //create trampolines
     tramps = (rel_fun*)malloc(sizeof(rel_fun)*(nfuncs + 1));
@@ -272,8 +275,6 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     };
     tramps[ntramps].code_ptr = create_trampoline(exit_funcs);
     tramps[ntramps++].name = "exit";
-
-    close(tramp_fd);
 
     int fname_len = strlen(fname);
     if(fname_len > PATH_MAX) err("file doesn't exist - too long file path");

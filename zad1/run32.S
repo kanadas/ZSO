@@ -3,7 +3,8 @@
 .type run32, @function
 .type return32, @function
 
-.data
+.text
+begin:
 old_stack: .quad 0
 
 .code32
@@ -30,16 +31,26 @@ run32:
     push %r13
     push %r14
     push %r15
-    movq %rsp, old_stack
+    call act_pos
+act_pos:
+    pop %rbx
+    lea act_pos - begin, %rax
+    sub %rax, %rbx
+    movq %rsp, old_stack - begin(%rbx)
     movq %rsi, %rsp
     subq $4, %rsp
     movl $0x23, 4(%rsp)
-    movq $switch32, %rax
+    leaq switch32 - begin(%ebx), %rax
     movl %eax, (%rsp)
     lret
 
 return32:
-    movq old_stack, %rsp
+    call act_pos2
+act_pos2:
+    pop %rbx
+    lea act_pos2 - begin, %rax
+    sub %rax, %rbx
+    movq old_stack - begin(%rbx), %rsp
     pop %r15
     pop %r14
     pop %r13

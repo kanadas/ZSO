@@ -1,12 +1,6 @@
-.global begin, param_t, arg_cnt, fun_addr, ret_t, trampoline, trampoline_end
+.global param_t, arg_cnt, fun_addr, ret_t, trampoline, trampoline_end
 
 .text
-begin:
-param_t: .zero 8    #pointer to byte array of argument types
-arg_cnt: .long -1   #argument count
-fun_addr: .zero 8   #function address
-ret_t: .byte -1     #return type (0 => 32 bits (or void), otherwise 64 bits)
-
 .code32
 trampoline:
     push   %ebp
@@ -18,9 +12,9 @@ trampoline:
     call   act_pos
 act_pos:
     pop    %ebx
-    lea    act_pos - begin, %eax 
+    lea    act_pos - trampoline, %eax 
     sub    %eax, %ebx               #address of begin of file in ebx
-    lea    switch64 - begin(%ebx), %eax
+    lea    switch64 - trampoline(%ebx), %eax
     pushl  %eax
     lret   
 
@@ -38,9 +32,9 @@ back32:
 
 .code64
 switch64:
-    movq   param_t - begin(%ebx), %rax
+    movq   param_t - trampoline(%ebx), %rax
     mov    %rax, %r15
-    movl   arg_cnt - begin(%ebx), %r10d
+    movl   arg_cnt - trampoline(%ebx), %r10d
     inc    %r10
     lea    8(%rbp), %r11
    
@@ -60,17 +54,17 @@ switch64:
     mov    %r10, %r12
     shl    $3, %r12
     sub    %r12, %rsp   #alloc memory for agruments on stack
-    and    $-15, %rsp   #align stack TODO -not working
-    mov    %rsp, %r12
+    andq    $-15, %rsp   #align stack TODO -not working
+    movq    %rsp, %r12
 arg_loop:
     call   extract_arg
     mov    %rax, (%r12)
     add    $8, %r12
     jmp    arg_loop
 arg_end:
-    movq   fun_addr - begin(%ebx), %rax
+    movq   fun_addr - trampoline(%ebx), %rax
     callq  *%rax
-    movb   ret_t - begin(%ebx), %cl   #ret_t = 0 => 32bit (or void), otherwise 64 bit
+    movb   ret_t - trampoline(%ebx), %cl   #ret_t = 0 => 32bit (or void), otherwise 64 bit
     test   %cl, %cl
     je     finish
     mov    %rax, %rdx
@@ -78,7 +72,7 @@ arg_end:
 finish:
     sub    $0x4, %rsp
     movl   $0x23, 0x4(%rsp)
-    lea    back32 - begin(%ebx), %r11
+    lea    back32 - trampoline(%ebx), %r11
     mov    %r11d, (%rsp)
     lret   
 
@@ -111,4 +105,9 @@ extract_fin:
     inc    %r15
     ret
 
-trampoline_end:
+param_t: .zero 8    #pointer to byte array of argument types
+arg_cnt: .zero 4    #argument count
+fun_addr: .zero 8   #function address
+ret_t: .zero 1      #return type (0 => 32 bits (or void), otherwise 64 bits)
+trampoline_end: .zero 1
+

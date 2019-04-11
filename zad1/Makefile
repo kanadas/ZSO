@@ -1,14 +1,14 @@
 all: crossld
 clean:
-	rm -f hello-32 hello-64 *.so *.o
+	rm -f *.so *.o
 
-crossld: crossld.c crossld.h run32.S
-	gcc -g -fno-pic -no-pie -Wall -Wextra -std=c11 crossld.c run32.S -o crossld
+crossld: crossld.c crossld.h run32.S trampoline.S
+	#as -g -o trampoline.o trampoline.S
+	#as -g -o run32.o run32.S
+	gcc -g -c -Wl,-soname=libcrossld.so -shared -fPIC -Wall -Wextra crossld.c trampoline.S run32.S
+	gcc -Wl,-soname=libcrossld.so -fPIC -shared crossld.o run32.o trampoline.o -o libcrossld.so
 
-hello_world: hello_world.c write.S
-	gcc -g -m32 -fno-pic -no-pie hello_world.c write.S -o hello_world
-
-trampoline.bin: trampoline.S
-	as -o trampoline.o trampoline.S
-	ld --oformat binary -o trampoline.bin trampoline.o
+#trampoline.bin: trampoline.S
+#	as -o trampoline.o trampoline.S
+#	ld --oformat binary -o trampoline.bin trampoline.o
 	#objcopy -O binary trampoline.elf trampoline.bin
