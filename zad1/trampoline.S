@@ -1,6 +1,4 @@
-.global param_t, arg_cnt, fun_addr, ret_t, trampoline, trampoline_end
 
-.text
 .code32
 trampoline:
     push   %ebp
@@ -54,8 +52,8 @@ switch64:
     mov    %r10, %r12
     shl    $3, %r12
     sub    %r12, %rsp   #alloc memory for agruments on stack
-    andq    $-15, %rsp   #align stack TODO -not working
-    movq    %rsp, %r12
+    andq   $-15, %rsp   #align stack TODO -not working
+    movq   %rsp, %r12
 arg_loop:
     call   extract_arg
     mov    %rax, (%r12)
@@ -64,11 +62,17 @@ arg_loop:
 arg_end:
     movq   fun_addr - trampoline(%ebx), %rax
     callq  *%rax
-    movb   ret_t - trampoline(%ebx), %cl   #ret_t = 0 => 32bit (or void), otherwise 64 bit
-    test   %cl, %cl
-    je     finish
     mov    %rax, %rdx
     shr    $32, %rdx    #pass upper half of rax in edx
+    movb   ret_t - trampoline(%ebx), %cl   #ret_t = 0 => 32bit (or void), otherwise 64 bit
+    test   %cl, %cl
+    jne    finish
+    test   %rdx, %rdx   
+    jne    finish
+    #if return type is 32 bit, and upper 32 bits of result are non zero - error
+    mov    -1, %rdi
+    movq   exit_addr - trampoline(%ebx), %rax
+    callq  *%rax
 finish:
     sub    $0x4, %rsp
     movl   $0x23, 0x4(%rsp)
@@ -109,5 +113,5 @@ param_t: .zero 8    #pointer to byte array of argument types
 arg_cnt: .zero 4    #argument count
 fun_addr: .zero 8   #function address
 ret_t: .zero 1      #return type (0 => 32 bits (or void), otherwise 64 bits)
-trampoline_end: .zero 1
+exit_addr: .zero 8  #address to exit function
 

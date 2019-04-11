@@ -11,6 +11,32 @@
 #include <elf.h>
 #include "crossld.h"
 
+//make trampoline.bin
+#define TRAMPOLINE_SIZE 301
+#define ARG_SIZE 29
+#define PARAM_T_OFFSET TRAMPOLINE_SIZE - 29
+#define ARG_CNT_OFFSET TRAMPOLINE_SIZE - 21
+#define FUN_ADDR_OFFSET TRAMPOLINE_SIZE - 17
+#define RET_T_OFFSET TRAMPOLINE_SIZE - 9
+#define EXIT_ADDR_OFFSET TRAMPOLINE_SIZE - 8
+unsigned char trampoline[TRAMPOLINE_SIZE] = "\
+\x55\x89\xE5\x53\x56\x57\x6A\x33\xE8\x00\x00\x00\x00\x5B\x8D\x05\x0D\x00\x00\x00\
+\x29\xC3\x8D\x83\x2B\x00\x00\x00\x50\xCB\x6A\x2B\x1F\x6A\x2B\x07\x5F\x5E\x5B\x89\
+\xEC\x5D\xC3\x67\x48\x8B\x83\x10\x01\x00\x00\x49\x89\xC7\x67\x44\x8B\x93\x18\x01\
+\x00\x00\x49\xFF\xC2\x4C\x8D\x5D\x08\xE8\x94\x00\x00\x00\x48\x89\xC7\xE8\x8C\x00\
+\x00\x00\x48\x89\xC6\xE8\x84\x00\x00\x00\x48\x89\xC2\xE8\x7C\x00\x00\x00\x48\x89\
+\xC1\xE8\x74\x00\x00\x00\x49\x89\xC0\xE8\x6C\x00\x00\x00\x49\x89\xC1\x4D\x89\xD4\
+\x49\xC1\xE4\x03\x4C\x29\xE4\x48\x83\xE4\xF1\x49\x89\xE4\xE8\x53\x00\x00\x00\x49\
+\x89\x04\x24\x49\x83\xC4\x08\xEB\xF1\x67\x48\x8B\x83\x1C\x01\x00\x00\xFF\xD0\x48\
+\x89\xC2\x48\xC1\xEA\x20\x67\x8A\x8B\x24\x01\x00\x00\x84\xC9\x75\x17\x48\x85\xD2\
+\x75\x12\x48\x8B\x3C\x25\xFF\xFF\xFF\xFF\x67\x48\x8B\x83\x25\x01\x00\x00\xFF\xD0\
+\x48\x83\xEC\x04\xC7\x44\x24\x04\x23\x00\x00\x00\x67\x4C\x8D\x5B\x1E\x44\x89\x1C\
+\x24\xCB\x49\xFF\xCA\x75\x04\x41\x5E\xEB\xAE\x41\xF6\x07\x01\x75\x18\x41\xF6\x07\
+\x02\x75\x09\x49\x63\x03\x49\x83\xC3\x04\xEB\x10\x41\x8B\x03\x49\x83\xC3\x04\xEB\
+\x07\x49\x8B\x03\x49\x83\xC3\x08\x49\xFF\xC7\xC3\x00\x00\x00\x00\x00\x00\x00\x00\
+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+\x00";
+
 #define STACK_SIZE 4096000
 
 int64_t PAGE_SIZE;
@@ -20,15 +46,6 @@ int64_t PAGE_SIZE;
 
 extern int run32(void* code, void* stack);
 extern void return32(int* status);
-
-extern void *trampoline_end, *param_t, *arg_cnt, *fun_addr, *ret_t, *trampoline;
-
-#define TRAMPOLINE_SIZE (trampoline_end - trampoline)
-#define PARAM_T_OFFSET (param_t - trampoline)
-#define ARG_CNT_OFFSET (arg_cnt - trampoline)
-#define FUN_ADDR_OFFSET (fun_addr - trampoline)
-#define RET_T_OFFSET (ret_t - trampoline)
-#define TRAMPOLINE_OFFSET (trampoline - trampoline)
 
 typedef struct {
     uint32_t code_ptr;
@@ -41,8 +58,8 @@ int ntramps = 0;
 static void free_tramps() {
     if(tramps == NULL) return;
     for(int i = 0; i < ntramps; ++i) {
-        free(*((uint8_t**)(tramps[i].code_ptr + PARAM_T_OFFSET - TRAMPOLINE_OFFSET)));
-        munmap((void*)(tramps[i].code_ptr - TRAMPOLINE_OFFSET), TRAMPOLINE_SIZE);
+        free(*((uint8_t**)(tramps[i].code_ptr + PARAM_T_OFFSET)));
+        munmap((void*)(tramps[i].code_ptr), TRAMPOLINE_SIZE);
     }
     free(tramps);
 }
@@ -224,7 +241,6 @@ void* readelf(const char *fname) {
 uint32_t create_trampoline(const struct function *fun) {
     void *f;
     if((f = mmap(NULL, TRAMPOLINE_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_32BIT | MAP_ANONYMOUS, -1, 0)) == MAP_FAILED) {
-        printf("%p %p %ld\n", trampoline, trampoline_end, TRAMPOLINE_SIZE);
         free_err("trampoline mmap");
     }
     memcpy(f, trampoline, TRAMPOLINE_SIZE);
@@ -243,20 +259,21 @@ uint32_t create_trampoline(const struct function *fun) {
             types[i] = 3; //64bit unsigned
     }
     uint8_t return_t = 0;
-    //TODO when TYPE_PTR || TYPE_(UNSIGNED)_LONG check length of return (32 bytes)
     if(fun->result == TYPE_LONG_LONG || fun->result == TYPE_UNSIGNED_LONG_LONG) {
         return_t = 1;
     }
+    void* exit_addr = (void*)*return32;
     memcpy(f + PARAM_T_OFFSET, &types, 8);
     memcpy(f + ARG_CNT_OFFSET, &(fun->nargs), 4);
     memcpy(f + FUN_ADDR_OFFSET, &(fun->code), 8);
     memcpy(f + RET_T_OFFSET, &return_t, 1);
+    memcpy(f + EXIT_ADDR_OFFSET, &exit_addr, 8);
     if(mprotect(f, TRAMPOLINE_SIZE, PROT_READ | PROT_EXEC) == -1) {
         free(types);
         munmap(f, TRAMPOLINE_SIZE);
         free_err("mprotect");
     }
-    return (uint32_t)f + TRAMPOLINE_OFFSET;
+    return (uint32_t)f;
 }
 
 int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
@@ -290,20 +307,5 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
         free_mappings();
         return ret;
     }
-    return 0;
-}
-
-static int print(char *data) {
-    printf("%s\n", data);
-    return 77;
-}
-
-int main() {
-    enum type print_types[] = {TYPE_PTR};
-    struct function funcs[] = {
-        {"print", print_types, 1, TYPE_INT, print},
-    };
-    int ret = crossld_start("hello/hello-32", funcs, 1);
-    printf("Crossld returned: %d\n", ret);
     return 0;
 }

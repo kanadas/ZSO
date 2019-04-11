@@ -3,11 +3,12 @@
 .type run32, @function
 .type return32, @function
 
-.text
-begin:
+.data
 old_stack: .quad 0
 
+.text
 .code32
+begin:
 switch32:
     pushl $0x2b
     popl %ds
@@ -36,11 +37,12 @@ act_pos:
     pop %rbx
     lea act_pos - begin, %rax
     sub %rax, %rbx
-    movq %rsp, old_stack - begin(%rbx)
+    movq %rsp, old_stack(%rip) # - begin(%rbx)
     movq %rsi, %rsp
     subq $4, %rsp
     movl $0x23, 4(%rsp)
-    leaq switch32 - begin(%ebx), %rax
+    #leaq switch32 - begin(%rbx), %rax
+    leaq switch32(%rip), %rax
     movl %eax, (%rsp)
     lret
 
@@ -50,7 +52,7 @@ act_pos2:
     pop %rbx
     lea act_pos2 - begin, %rax
     sub %rax, %rbx
-    movq old_stack - begin(%rbx), %rsp
+    movq old_stack(%rip), %rsp  #- begin(%rbx), %rsp
     pop %r15
     pop %r14
     pop %r13
