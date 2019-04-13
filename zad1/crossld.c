@@ -58,6 +58,8 @@ int64_t PAGE_SIZE;
 #define PAGESTART(_v) ((_v) & ~(PAGE_SIZE - 1))
 #define PAGEOFFSET(_v) ((_v) & (PAGE_SIZE - 1))
 
+#define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
+
 typedef struct {
     int32_t code_ptr;
     const char *name;
@@ -66,13 +68,18 @@ typedef struct {
 rel_fun *tramps = NULL;
 int ntramps = 0;
 
-static void free_tramps() {
-    if(tramps == NULL) return;
+static int free_tramps() {
+    if(tramps == NULL) return 0;
+    int ret = 0, temp;
     for(int i = 0; i < ntramps; ++i) {
         free(*((int8_t**)(tramps[i].code_ptr + PARAM_T_OFFSET)));
-        munmap((void*)(tramps[i].code_ptr), TRAMPOLINE_SIZE);
+        temp = munmap((void*)(tramps[i].code_ptr), TRAMPOLINE_SIZE);
+        ret = MIN(ret, temp);
     }
     free(tramps);
+    tramps = NULL;
+    ntramps = 0;
+    return ret;
 }
 
 typedef struct {
@@ -84,29 +91,32 @@ mapping *mappings = NULL;
 ssize_t mappings_len = 0;
 uint32_t mappings_num = 0;
 
-static void free_mappings() {
-    if(mappings == NULL) return;
+static int free_mappings() {
+    if(mappings == NULL) return 0;
+    int ret = 0, temp;
     for(uint32_t i = 0; i < mappings_num; ++i) {
-        munmap(mappings[i].ptr, mappings[i].len);
+        temp = munmap(mappings[i].ptr, mappings[i].len);
+        ret = MIN(ret, temp);
     }
     free(mappings);
+    mappings = NULL;
+    mappings_len = 0;
+    mappings_num = 0;
+    return ret;
 }
 
-//static void err(const char *err)
-//{
-//    fprintf(stderr, "%s: %d %s\n", err, errno, strerror(errno));
-//    exit(1);
-//}
+int elf_fd = -1;
 
-static void free_mem()
+static int free_mem()
 {
-    free_tramps();
-    free_mappings();
-}
-
-static void close_free_mem(int fd) {
-    close(fd);
-    free_mem();
+    int res = 0, temp;
+    if(elf_fd != -1) res = close(elf_fd);
+    elf_fd = -1;
+    temp = free_tramps();
+    res = MIN(res, temp);
+    temp = free_mappings();
+    res = MIN(res, temp);
+    return res;
 }
 
 static int add_mapping(void* ptr, ssize_t len) {
@@ -125,55 +135,49 @@ static int add_mapping(void* ptr, ssize_t len) {
     return 0;
 }
 
+Elf32_Ehdr e_hdr;
+Elf32_Phdr *p_hdr = NULL;
+
 //returns entry point pointer
 void* readelf(const char *fname) {
-    int fd;
-    Elf32_Ehdr e_hdr;
-    Elf32_Phdr *p_hdr = NULL;
-    //Elf32_Shdr *s_hdr = NULL;
-    Elf32_Dyn *dyn = NULL;
-    Elf32_Rel *rel_ptr = NULL;
-    Elf32_Sym *sym_ptr = NULL;
-    char *str_ptr = NULL;
-    ssize_t rel_s = -1;//, sym_s = -1, str_s = -1;
     //elf header validation
-    if((fd = open(fname, O_RDONLY)) == -1) 
+    if((elf_fd = open(fname, O_RDONLY)) == -1) 
         return NULL;
-    if(read(fd, &e_hdr, sizeof(e_hdr)) != sizeof(e_hdr)) {
+    if(read(elf_fd, &e_hdr, sizeof(e_hdr)) != sizeof(e_hdr)) {
         errno = ENOEXEC;
-        close_free_mem(fd);
+        free_mem();
         return NULL;
     }
     if(memcmp(e_hdr.e_ident, ELFMAG, SELFMAG) != 0) {
         errno = ENOEXEC;
-        close_free_mem(fd);
+        free_mem();
         return NULL;
     }
     if(e_hdr.e_ident[EI_CLASS] != ELFCLASS32) {
         errno = ENOEXEC;
-        close_free_mem(fd);
+        free_mem();
         return NULL;
     }
     if(e_hdr.e_type != ET_EXEC) {
         errno = ENOEXEC;
-        close_free_mem(fd);
+        free_mem();
         return NULL;
     }
     if(e_hdr.e_machine != EM_386) {
         errno = ENOEXEC;
-        close_free_mem(fd);
+        free_mem();
         return NULL;
     }
     
     //loading elf program headers
     uint32_t p_hdr_s = e_hdr.e_phentsize * e_hdr.e_phnum;
     if((p_hdr = malloc(p_hdr_s)) == NULL) {
-        close_free_mem(fd); 
+        free_mem(); 
         return NULL;
     }
-    if(pread(fd, p_hdr, p_hdr_s, e_hdr.e_phoff) == -1) {
+    if(pread(elf_fd, p_hdr, p_hdr_s, e_hdr.e_phoff) == -1) {
         free(p_hdr);
-        close_free_mem(fd);
+        free_mem();
         return NULL;
     }
     short loaded = 0;
@@ -190,13 +194,13 @@ void* readelf(const char *fname) {
             map_start = (void*)PAGESTART(p_hdr[i].p_vaddr);
             map_size = p_hdr[i].p_filesz + PAGEOFFSET(p_hdr[i].p_vaddr);
             map_offset = p_hdr[i].p_offset - PAGEOFFSET(p_hdr[i].p_vaddr);
-            if((map_ptr = mmap(map_start, map_size, flags, MAP_PRIVATE, fd, map_offset)) != map_start) {
+            if((map_ptr = mmap(map_start, map_size, flags, MAP_PRIVATE, elf_fd, map_offset)) != map_start) {
                 if(map_ptr != NULL) {
                     munmap(map_ptr, map_size);
                     errno = EFAULT;
                 }
                 free(p_hdr);
-                close_free_mem(fd);
+                free_mem();
                 return NULL;
             }
             if(add_mapping(map_start, map_size) == -1) return NULL;
@@ -225,17 +229,37 @@ void* readelf(const char *fname) {
                     if(add_mapping(bss_b, bss_s - rest) == -1) return NULL;
                 }
             }
-        } else if(p_hdr[i].p_type == PT_DYNAMIC) {
+        } 
+    }    
+
+    if(!loaded) {
+        errno = ENOMEDIUM; //Nothing executable found
+        return NULL;
+    } 
+    return (void*)e_hdr.e_entry;
+
+}
+
+int link_elf() {
+    
+    Elf32_Rel *rel_ptr = NULL;
+    Elf32_Sym *sym_ptr = NULL;
+    Elf32_Dyn *dyn = NULL;
+    char *str_ptr = NULL;
+    ssize_t rel_s = -1;
+
+    for(int i = 0; i < e_hdr.e_phnum; ++i) {
+        if(p_hdr[i].p_type == PT_DYNAMIC) {
             if((dyn = malloc(p_hdr[i].p_memsz)) == NULL) {
                 free(p_hdr);
                 free_mem();
-                return NULL;
+                return -1;
             }
-            if(pread(fd, dyn, p_hdr[i].p_memsz, p_hdr[i].p_offset) == -1) {
+            if(pread(elf_fd, dyn, p_hdr[i].p_memsz, p_hdr[i].p_offset) == -1) {
                 free(dyn);
                 free(p_hdr);
-                close_free_mem(fd);
-                return NULL;
+                free_mem();
+                return -1;
             }
             for(int i = 0; dyn[i].d_tag != DT_NULL; ++i) {
                 switch (dyn[i].d_tag) {
@@ -248,39 +272,34 @@ void* readelf(const char *fname) {
                     case DT_SYMTAB:     //.dynsym address
                         sym_ptr = (Elf32_Sym*)dyn[i].d_un.d_ptr;
                         break;
-                    //case DT_SYMENT:     //.dynsym size
-                    //    sym_s = dyn[i].d_un.d_val;
-                    //    break;
                     case DT_STRTAB:     //.dynstr address
                         str_ptr = (char*)dyn[i].d_un.d_ptr;
                         break;
-                    //case DT_STRSZ:      //.dynstr size
-                    //    str_s = dyn[i].d_un.d_val;
                 }
             }
             free(dyn);
         }
     }
 
-    close(fd);
-
-    if(!loaded) {
-        errno = ENOMEDIUM; //Nothing executable found
-        return NULL;
+    if(close(elf_fd) < 0) {
+        elf_fd = -1;
+        free_mem();
+        return -1;
     }
+    elf_fd = -1;
+
     if(rel_ptr != 0 && rel_s > 0) {
         Elf32_Sym sym;
         for(int i = 0; i < rel_s; ++i) {
            sym = sym_ptr[ELF32_R_SYM(rel_ptr[i].r_info)];
            for(int j = 0; j < ntramps; ++j)
                if(strcmp(tramps[j].name, str_ptr + sym.st_name) == 0) {
-                   //TODO not sure it have to have write permissions (but should)
                    memcpy((void*)rel_ptr[i].r_offset, &tramps[j].code_ptr, 4);
                }
         }
     }
     free(p_hdr);
-    return (void*)e_hdr.e_entry;
+    return 1;
 }
 
 int32_t create_trampoline(const struct function *fun) {
@@ -326,18 +345,33 @@ int32_t create_trampoline(const struct function *fun) {
 
 int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     PAGE_SIZE = sysconf(_SC_PAGESIZE);
+
+    int fname_len = strlen(fname);
+    if(fname_len > PATH_MAX) {
+        errno = EINVAL; //No such file - too long name
+        return -1;
+    }
+
+    void(*entry)(void) = readelf(fname);
+    if(entry == NULL) {
+        free_mem();
+        return -1;
+    }
     
     if((run32 = mmap(NULL, TRAMPOLINE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_32BIT | MAP_ANONYMOUS, -1, 0)) == MAP_FAILED) {
+        free_mem();
         return -1;
     }
     return32 = run32 + RETURN32_OFFSET;
     memcpy(run32, run32_code, RUN32_SIZE);
+    
     //create trampolines
     tramps = (rel_fun*)malloc(sizeof(rel_fun)*(nfuncs + 1));
     for(ntramps = 0; ntramps < nfuncs; ++ntramps) {
         if((tramps[ntramps].code_ptr = create_trampoline(funcs + ntramps)) < 0) return -1;
         tramps[ntramps].name = funcs[ntramps].name;
     }
+    
     //create exit trampoline
     enum type exit_types[] = {TYPE_INT};
     struct function exit_funcs[] = {
@@ -346,21 +380,20 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
     if((tramps[ntramps].code_ptr = create_trampoline(exit_funcs)) < 0) return -1;
     tramps[ntramps++].name = "exit";
 
-    int fname_len = strlen(fname);
-    if(fname_len > PATH_MAX) {
-        errno = EINVAL; //No such file - too long name
+    if(link_elf() == -1) {
+        free_mem();
         return -1;
     }
-    void(*entry)(void) = readelf(fname);
-    if(entry == NULL)  return -1;
+
     void* stack;
-    if((stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)) == MAP_FAILED)
+    if((stack = mmap(NULL, STACK_SIZE, PROT_READ | PROT_WRITE, MAP_ANONYMOUS | MAP_PRIVATE | MAP_32BIT, -1, 0)) == MAP_FAILED) {
+        free_mem();
         return -1;
+    }
     //pass program name - 0 argument
     strcpy(stack + STACK_SIZE - 8 - fname_len, fname);
     int ret = ((int(*)(void*,void*))run32)(entry, stack + STACK_SIZE - fname_len - 16);
-    free_tramps();
-    free_mappings();
+    if(free_mem() < 0) return -1;
     return ret;
 }
 

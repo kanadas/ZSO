@@ -3,7 +3,7 @@ clean:
 	rm -f *.so *.o
 
 crossld: crossld.c crossld.h run32.S trampoline.S
-	gcc -Wl,-soname=libcrossld.so -shared -fPIC -Wall -Wextra crossld.c -o libcrossld.so
+	gcc -g -Wl,-soname=libcrossld.so -shared -fPIC -Wall -Wextra crossld.c -o libcrossld.so
 
 trampoline.bin: trampoline.S
 	as -o trampoline.o trampoline.S
