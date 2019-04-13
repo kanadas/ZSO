@@ -7,10 +7,10 @@ asm (
 
 
 _Noreturn void exit(int status);
-void print(char *str);
+int print(char *str);
 
 void hello()
 {
-	print("Hello world");
-	exit(0);
+	int ret = print("Hello world");
+	exit(ret);
 }

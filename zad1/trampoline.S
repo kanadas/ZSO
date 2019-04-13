@@ -2,10 +2,10 @@
 .code32
 trampoline:
     push   %ebp
-    mov    %esp, %ebp
     push   %ebx
     push   %esi
     push   %edi
+    mov    %esp, %ebp
     pushl  $0x33
     call   act_pos
 act_pos:
@@ -21,10 +21,10 @@ back32:
     popl   %ds
     pushl  $0x2b
     popl   %es
+    mov    %ebp, %esp
     pop    %edi
     pop    %esi
     pop    %ebx
-    mov    %ebp, %esp
     pop    %ebp
     ret
 
@@ -34,7 +34,7 @@ switch64:
     mov    %rax, %r15
     movl   arg_cnt - trampoline(%ebx), %r10d
     inc    %r10
-    lea    8(%rbp), %r11
+    lea    20(%rbp), %r11
    
     call   extract_arg
     mov    %rax, %rdi
@@ -52,7 +52,7 @@ switch64:
     mov    %r10, %r12
     shl    $3, %r12
     sub    %r12, %rsp   #alloc memory for agruments on stack
-    andq   $-15, %rsp   #align stack TODO -not working
+    andq   $-16, %rsp   #align stack 
     movq   %rsp, %r12
 arg_loop:
     call   extract_arg
@@ -64,17 +64,17 @@ arg_end:
     callq  *%rax
     mov    %rax, %rdx
     shr    $32, %rdx    #pass upper half of rax in edx
-    movb   ret_t - trampoline(%ebx), %cl   #ret_t = 0 => 32bit (or void), otherwise 64 bit
+    movb   ret_t - trampoline(%ebx), %cl   #ret_t = 0 => check overflow, otherwise dont
     test   %cl, %cl
     jne    finish
     test   %rdx, %rdx   
     jne    finish
     #if return type is 32 bit, and upper 32 bits of result are non zero - error
-    mov    -1, %rdi
+    mov    $-1, %rdi
     movq   exit_addr - trampoline(%ebx), %rax
     callq  *%rax
 finish:
-    sub    $0x4, %rsp
+    sub    $0x8, %rsp
     movl   $0x23, 0x4(%rsp)
     lea    back32 - trampoline(%ebx), %r11
     mov    %r11d, (%rsp)
@@ -112,6 +112,6 @@ extract_fin:
 param_t: .zero 8    #pointer to byte array of argument types
 arg_cnt: .zero 4    #argument count
 fun_addr: .zero 8   #function address
-ret_t: .zero 1      #return type (0 => 32 bits (or void), otherwise 64 bits)
+ret_t: .zero 1      #return type (0 => check overflow, otherwise dont)
 exit_addr: .zero 8  #address to exit function
 

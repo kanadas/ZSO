@@ -1,13 +1,14 @@
 #include <stdio.h>
 #include "crossld.h"
 
-static void print(char *data) {
+static int print(char *data) {
 	printf("%s\n", data);
+    return 77;
 }
 
 int main() {
 	int res;
-	enum type print_types[] = {TYPE_PTR};
+	enum type print_types[] = {TYPE_INT};
 	struct function funcs[] = {
 		{"print", print_types, 1, TYPE_VOID, print},
 	};
