@@ -67,8 +67,8 @@ arg_end:
     movb   ret_t - trampoline(%ebx), %cl   #ret_t = 0 => check overflow, otherwise dont
     test   %cl, %cl
     jne    finish
-    test   %rdx, %rdx   
-    jne    finish
+    cmp    $0, %rdx   
+    je     finish
     #if return type is 32 bit, and upper 32 bits of result are non zero - error
     mov    $-1, %rdi
     movq   exit_addr - trampoline(%ebx), %rax

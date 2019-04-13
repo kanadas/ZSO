@@ -12,7 +12,7 @@
 #include "crossld.h"
 
 //make trampoline.bin
-#define TRAMPOLINE_SIZE 300
+#define TRAMPOLINE_SIZE 301
 #define ARG_SIZE 29
 #define PARAM_T_OFFSET TRAMPOLINE_SIZE - 29
 #define ARG_CNT_OFFSET TRAMPOLINE_SIZE - 21
@@ -22,31 +22,33 @@
 unsigned char trampoline[TRAMPOLINE_SIZE] = "\
 \x55\x53\x56\x57\x89\xE5\x6A\x33\xE8\x00\x00\x00\x00\x5B\x8D\x05\x0D\x00\x00\x00\
 \x29\xC3\x8D\x83\x2B\x00\x00\x00\x50\xCB\x6A\x2B\x1F\x6A\x2B\x07\x89\xEC\x5F\x5E\
-\x5B\x5D\xC3\x67\x48\x8B\x83\x0F\x01\x00\x00\x49\x89\xC7\x67\x44\x8B\x93\x17\x01\
-\x00\x00\x49\xFF\xC2\x4C\x8D\x5D\x14\xE8\x93\x00\x00\x00\x48\x89\xC7\xE8\x8B\x00\
-\x00\x00\x48\x89\xC6\xE8\x83\x00\x00\x00\x48\x89\xC2\xE8\x7B\x00\x00\x00\x48\x89\
-\xC1\xE8\x73\x00\x00\x00\x49\x89\xC0\xE8\x6B\x00\x00\x00\x49\x89\xC1\x4D\x89\xD4\
-\x49\xC1\xE4\x03\x4C\x29\xE4\x48\x83\xE4\xF0\x49\x89\xE4\xE8\x52\x00\x00\x00\x49\
-\x89\x04\x24\x49\x83\xC4\x08\xEB\xF1\x67\x48\x8B\x83\x1B\x01\x00\x00\xFF\xD0\x48\
-\x89\xC2\x48\xC1\xEA\x20\x67\x8A\x8B\x23\x01\x00\x00\x84\xC9\x75\x16\x48\x85\xD2\
-\x75\x11\x48\xC7\xC7\xFF\xFF\xFF\xFF\x67\x48\x8B\x83\x24\x01\x00\x00\xFF\xD0\x48\
-\x83\xEC\x08\xC7\x44\x24\x04\x23\x00\x00\x00\x67\x4C\x8D\x5B\x1E\x44\x89\x1C\x24\
-\xCB\x49\xFF\xCA\x75\x04\x41\x5E\xEB\xAF\x41\xF6\x07\x01\x75\x18\x41\xF6\x07\x02\
-\x75\x09\x49\x63\x03\x49\x83\xC3\x04\xEB\x10\x41\x8B\x03\x49\x83\xC3\x04\xEB\x07\
-\x49\x8B\x03\x49\x83\xC3\x08\x49\xFF\xC7\xC3\x00\x00\x00\x00\x00\x00\x00\x00\x00\
-\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00";
+\x5B\x5D\xC3\x67\x48\x8B\x83\x10\x01\x00\x00\x49\x89\xC7\x67\x44\x8B\x93\x18\x01\
+\x00\x00\x49\xFF\xC2\x4C\x8D\x5D\x14\xE8\x94\x00\x00\x00\x48\x89\xC7\xE8\x8C\x00\
+\x00\x00\x48\x89\xC6\xE8\x84\x00\x00\x00\x48\x89\xC2\xE8\x7C\x00\x00\x00\x48\x89\
+\xC1\xE8\x74\x00\x00\x00\x49\x89\xC0\xE8\x6C\x00\x00\x00\x49\x89\xC1\x4D\x89\xD4\
+\x49\xC1\xE4\x03\x4C\x29\xE4\x48\x83\xE4\xF0\x49\x89\xE4\xE8\x53\x00\x00\x00\x49\
+\x89\x04\x24\x49\x83\xC4\x08\xEB\xF1\x67\x48\x8B\x83\x1C\x01\x00\x00\xFF\xD0\x48\
+\x89\xC2\x48\xC1\xEA\x20\x67\x8A\x8B\x24\x01\x00\x00\x84\xC9\x75\x17\x48\x83\xFA\
+\x00\x74\x11\x48\xC7\xC7\xFF\xFF\xFF\xFF\x67\x48\x8B\x83\x25\x01\x00\x00\xFF\xD0\
+\x48\x83\xEC\x08\xC7\x44\x24\x04\x23\x00\x00\x00\x67\x4C\x8D\x5B\x1E\x44\x89\x1C\
+\x24\xCB\x49\xFF\xCA\x75\x04\x41\x5E\xEB\xAE\x41\xF6\x07\x01\x75\x18\x41\xF6\x07\
+\x02\x75\x09\x49\x63\x03\x49\x83\xC3\x04\xEB\x10\x41\x8B\x03\x49\x83\xC3\x04\xEB\
+\x07\x49\x8B\x03\x49\x83\xC3\x08\x49\xFF\xC7\xC3\x00\x00\x00\x00\x00\x00\x00\x00\
+\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\x00\
+\x00";
 
 //make run32.bin
-#define RUN32_SIZE 120
-//TODO pointer for global variable to hold stack pointer (and remove write permissions)
-#define RETURN32_OFFSET 0x3C
+#define RUN32_SIZE 126
+#define RETURN32_OFFSET 0x3F
+#define OLD_STACK_PTR_OFFSET RUN32_SIZE - 8
 unsigned char run32_code[RUN32_SIZE] = "\
 \x53\x55\x41\x54\x41\x55\x41\x56\x41\x57\xE8\x00\x00\x00\x00\x5B\x48\x8D\x04\x25\
-\x0F\x00\x00\x00\x48\x29\xC3\x48\x89\xA3\x70\x00\x00\x00\x48\x89\xF4\x48\x83\xEC\
-\x04\xC7\x44\x24\x04\x23\x00\x00\x00\x48\x8D\x83\x61\x00\x00\x00\x89\x04\x24\xCB\
-\xE8\x00\x00\x00\x00\x5B\x48\x8D\x04\x25\x41\x00\x00\x00\x48\x29\xC3\x48\x8B\xA3\
-\x70\x00\x00\x00\x41\x5F\x41\x5E\x41\x5D\x41\x5C\x5D\x5B\x89\xF8\xC3\x6A\x2B\x1F\
-\x6A\x2B\x07\x8D\x44\x24\x08\x50\x6A\x00\x57\xC3\x00\x00\x00\x00\x00\x00\x00\x00"; 
+\x0F\x00\x00\x00\x48\x29\xC3\x4C\x8B\x9B\x76\x00\x00\x00\x49\x89\x23\x48\x89\xF4\
+\x48\x83\xEC\x04\xC7\x44\x24\x04\x23\x00\x00\x00\x48\x8D\x83\x67\x00\x00\x00\x89\
+\x04\x24\xCB\xE8\x00\x00\x00\x00\x5B\x48\x8D\x04\x25\x44\x00\x00\x00\x48\x29\xC3\
+\x4C\x8B\x9B\x76\x00\x00\x00\x49\x8B\x23\x41\x5F\x41\x5E\x41\x5D\x41\x5C\x5D\x5B\
+\x89\xF8\xC3\x6A\x2B\x1F\x6A\x2B\x07\x8D\x44\x24\x08\x50\x6A\x00\x57\xC3\x00\x00\
+\x00\x00\x00\x00\x00\x00";
 
 void* run32;
 void* return32;
@@ -61,7 +63,7 @@ int64_t PAGE_SIZE;
 #define MIN(X, Y) (((X) < (Y)) ? (X) : (Y))
 
 typedef struct {
-    int32_t code_ptr;
+    int64_t code_ptr;
     const char *name;
 } rel_fun;
 
@@ -207,7 +209,7 @@ void* readelf(const char *fname) {
             //BSS
             int bss_s = p_hdr[i].p_memsz - p_hdr[i].p_filesz;
             if(bss_s > 0) {
-                void* bss = (void*) p_hdr[i].p_vaddr + p_hdr[i].p_filesz;
+                void* bss = (void*)(uint64_t)p_hdr[i].p_vaddr + p_hdr[i].p_filesz;
                 int rest = PAGE_SIZE - PAGEOFFSET((uint64_t)bss);
                 void* bss_b = (void*)PAGE_SIZE + PAGESTART((uint64_t)bss);
                 if(rest < PAGE_SIZE) {
@@ -236,7 +238,7 @@ void* readelf(const char *fname) {
         errno = ENOMEDIUM; //Nothing executable found
         return NULL;
     } 
-    return (void*)e_hdr.e_entry;
+    return (void*)(uint64_t)e_hdr.e_entry;
 
 }
 
@@ -264,16 +266,16 @@ int link_elf() {
             for(int i = 0; dyn[i].d_tag != DT_NULL; ++i) {
                 switch (dyn[i].d_tag) {
                     case DT_JMPREL:     //.rel.plt address
-                        rel_ptr = (Elf32_Rel*)dyn[i].d_un.d_ptr;
+                        rel_ptr = (Elf32_Rel*)(uint64_t)dyn[i].d_un.d_ptr;
                         break;
                     case DT_PLTRELSZ:   //.rel.plt size
                         rel_s = dyn[i].d_un.d_val / sizeof(Elf32_Rel);
                         break;
                     case DT_SYMTAB:     //.dynsym address
-                        sym_ptr = (Elf32_Sym*)dyn[i].d_un.d_ptr;
+                        sym_ptr = (Elf32_Sym*)(uint64_t)dyn[i].d_un.d_ptr;
                         break;
                     case DT_STRTAB:     //.dynstr address
-                        str_ptr = (char*)dyn[i].d_un.d_ptr;
+                        str_ptr = (char*)(uint64_t)dyn[i].d_un.d_ptr;
                         break;
                 }
             }
@@ -288,14 +290,23 @@ int link_elf() {
     }
     elf_fd = -1;
 
+    int undefined;
+
     if(rel_ptr != 0 && rel_s > 0) {
         Elf32_Sym sym;
         for(int i = 0; i < rel_s; ++i) {
-           sym = sym_ptr[ELF32_R_SYM(rel_ptr[i].r_info)];
-           for(int j = 0; j < ntramps; ++j)
-               if(strcmp(tramps[j].name, str_ptr + sym.st_name) == 0) {
-                   memcpy((void*)rel_ptr[i].r_offset, &tramps[j].code_ptr, 4);
-               }
+            undefined = 1;
+            sym = sym_ptr[ELF32_R_SYM(rel_ptr[i].r_info)];
+            for(int j = 0; j < ntramps; ++j)
+                if(strcmp(tramps[j].name, str_ptr + sym.st_name) == 0) {
+                    memcpy((void*)(uint64_t)rel_ptr[i].r_offset, &tramps[j].code_ptr, 4);
+                    undefined = 0;
+                    break;
+                }
+            if(undefined) {
+                free_mem();
+                return -1;
+            }
         }
     }
     free(p_hdr);
@@ -325,7 +336,7 @@ int32_t create_trampoline(const struct function *fun) {
             types[i] = 3; //64bit unsigned
     }
     uint8_t return_t = 1;
-    if(fun->result == TYPE_PTR || fun->result == TYPE_LONG || fun->result == TYPE_LONG_LONG) {
+    if(fun->result == TYPE_PTR || fun->result == TYPE_LONG || fun->result == TYPE_UNSIGNED_LONG) {
         return_t = 0;
     }
     void* exit_addr = return32;
@@ -340,7 +351,7 @@ int32_t create_trampoline(const struct function *fun) {
         free_mem();
         return -1;
     }
-    return (int32_t)f; //MAP_32BIT guarantees not negative address (first 2GB)
+    return (uint64_t)f; //MAP_32BIT guarantees not negative address (first 2GB)
 }
 
 int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
@@ -358,10 +369,11 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
         return -1;
     }
     
-    if((run32 = mmap(NULL, TRAMPOLINE_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_32BIT | MAP_ANONYMOUS, -1, 0)) == MAP_FAILED) {
+    if((run32 = mmap(NULL, RUN32_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_32BIT | MAP_ANONYMOUS, -1, 0)) == MAP_FAILED) {
         free_mem();
         return -1;
     }
+    add_mapping(run32, RUN32_SIZE);
     return32 = run32 + RETURN32_OFFSET;
     memcpy(run32, run32_code, RUN32_SIZE);
     
@@ -390,9 +402,26 @@ int crossld_start(const char *fname, const struct function *funcs, int nfuncs) {
         free_mem();
         return -1;
     }
+    add_mapping(stack, STACK_SIZE);
     //pass program name - 0 argument
     strcpy(stack + STACK_SIZE - 8 - fname_len, fname);
+    
+    //Space to save old stack
+    void* old_stack = malloc(8);
+    if(old_stack == NULL) {
+        free_mem();
+        return -1;
+    }
+    memcpy(run32 + OLD_STACK_PTR_OFFSET, &old_stack, 8);
+    if(mprotect(run32, RUN32_SIZE, PROT_READ | PROT_EXEC) == -1) {
+        free(old_stack);
+        free_mem();
+        return -1;
+    }
+
     int ret = ((int(*)(void*,void*))run32)(entry, stack + STACK_SIZE - fname_len - 16);
+
+    free(old_stack);
     if(free_mem() < 0) return -1;
     return ret;
 }
