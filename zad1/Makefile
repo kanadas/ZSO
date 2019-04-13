@@ -8,7 +8,6 @@ crossld: crossld.c crossld.h run32.S trampoline.S
 trampoline.bin: trampoline.S
 	as -o trampoline.o trampoline.S
 	ld --oformat binary -o trampoline.bin trampoline.o
-	#objcopy -O binary trampoline.elf trampoline.bin
 
 run32.bin: run32.S
 	as -o run32.o run32.S
