@@ -1,0 +1,2 @@
+Kompilacja rozwiązania: make
+Rozwiązanie korzysta z dwóch podprogramów assemblerowych: run32.S i trampoline.S, oba zostały zbudowane instrukcjami odpowiednio: make run32.bin && make trampoline.bin i wynik tych operacji wrzucony wprost do kodu rozwiązania (jako tablica). trampoline.S zawiera szablon trampoliny, który jest osobno kopiowany do pamięci dla każdej funkcji z argumentu crossld_start. run32.S zawiera funkcję do uruchomienia docelowego programu i drugą - do implementacji funkcji exit. Oba szablony są wypełniane (na końcu) danymi podczas działania crossld_start.

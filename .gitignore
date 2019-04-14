@@ -1,3 +1,4 @@
 *.o
 test*
 *.gdb_history
+*.qcow2
