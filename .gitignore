@@ -2,3 +2,5 @@
 test*
 *.gdb_history
 *.qcow2
+linux/
+qemu/
