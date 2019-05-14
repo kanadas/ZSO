@@ -10,6 +10,8 @@
 #include <linux/gfp.h>
 
 #include "doomdev2.h"
+#include "doomdefs.h"
+#include "doomcode2.h"
 
 MODULE_LICENSE("GPL");
 
@@ -17,47 +19,47 @@ struct devdata {
 	dev_t major;
 	struct device *doom_device;
 	struct cdev doom_cdev;
-	struct list_head dev_list;
+	void __iomem* bar;
 };
 
 static dev_t doomdev_major;
-static struct list_head dev_list;
 static struct class doomdev_class = {
-	.name = "doomdev",
+	.name = "harddoom",
 	.owner = THIS_MODULE,
 };
 
-static int doomdev_open(struct inode *ino, struct file *filep);
-static int doomdev_release(struct inode *ino, struct file *filep);
-static ssize_t doomdev_read(struct file *file, char __user *buf, size_t count, loff_t *filepos);
-static long doomdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
-static int doomdev_probe(struct pci_dev *dev, const struct pci_device_id *id);
-static void doomdev_remove(struct pci_dev *dev);
-static int doomdev_suspend(struct pci_dev *dev, pm_message_t state);
-static int doomdev_resume(struct pci_dev *dev);
-static void doomdev_shutdown(struct pci_dev *dev);
+static ssize_t doomfile_read(struct file *file, char __user *buf, size_t count, loff_t *filepos);
+static int doomfile_open(struct inode *ino, struct file *filep);
+static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long arg);
+static int doomfile_release(struct inode *ino, struct file *filep);
+
+static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id);
+static void doomdriv_remove(struct pci_dev *dev);
+static int doomdriv_suspend(struct pci_dev *dev, pm_message_t state);
+static int doomdriv_resume(struct pci_dev *dev);
+static void doomdriv_shutdown(struct pci_dev *dev);
 
 static struct file_operations doomdev_fops = {
 	.owner = THIS_MODULE,
-	.read = doomdev_read,
-	.open = doomdev_open,
-	.unlocked_ioctl = doomdev_ioctl,
-	.compat_ioctl = doomdev_ioctl,
-	.release = doomdev_release,
+	.read = doomfile_read,
+	.open = doomfile_open,
+	.unlocked_ioctl = doomfile_ioctl,
+	.compat_ioctl = doomfile_ioctl,
+	.release = doomfile_release,
 };
 
-static const struct pci_device_id doomdev_dev_ids[] = {{PCI_DEVICE(0x0666, 0x1994)}, {PCI_DEVICE(0,0)}};
+static const struct pci_device_id doomdriv_dev_ids[] = {{PCI_DEVICE(0x0666, 0x1994)}, {PCI_DEVICE(0,0)}};
 static struct pci_driver doomdev_driver = {
-	.name = "doomdev",
-	.id_table = doomdev_dev_ids,
-	.probe = doomdev_probe,
-	.remove = doomdev_remove,
-	.suspend = doomdev_suspend,
-	.resume = doomdev_resume,
-	.shutdown = doomdev_shutdown,
+	.name = "harddoom",
+	.id_table = doomdriv_dev_ids,
+	.probe = doomdriv_probe,
+	.remove = doomdriv_remove,
+	.suspend = doomdriv_suspend,
+	.resume = doomdriv_resume,
+	.shutdown = doomdriv_shutdown,
 };
 
-static int doomdev_probe(struct pci_dev *dev, const struct pci_device_id *id)
+static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 {
 	int err;
 	struct devdata *data = (struct devdata*) kmalloc(sizeof(struct devdata), GFP_KERNEL);
@@ -71,57 +73,85 @@ static int doomdev_probe(struct pci_dev *dev, const struct pci_device_id *id)
 		err = PTR_ERR(data->doom_device);
 		goto err_device;
 	}
-	list_add(&data->dev_list, &dev_list);
+	if ((err = pci_enable_device(dev)))
+		goto err_device;
+	if ((err = pci_request_regions(dev, "harddoom")))
+		goto err_regions;
+	data->bar = pci_iomap(dev, 0, 1 << 13);
+	if (IS_ERR(data->bar)) {
+		err = PTR_ERR(data->bar);
+		goto err_bar;
+	}
+	pci_set_master(dev);
+	pci_set_dma_mask(dev, DMA_BIT_MASK(40));
+	pci_set_consistent_dma_mask(dev, DMA_BIT_MASK(40));
+
 	++doomdev_major;
 	pci_set_drvdata(dev, data);
+
+	iowrite32(0, data->bar + FE_CODE_ADDR);
+	int code_len = ARRAY_SIZE(doomcode2);
+	for(int i = 0; i < code_len; ++i)
+		iowrite32(doomcode2[i], data->bar + FE_CODE_WINDOW);
+	iowrite32(RESET_DEVICE, data->bar + RESET);
+	//initialize cmd_pt, size, idx to use order buffer
+	iowrite32(INTR_CLEAR, data->bar + INTR);
+	//enable interrupts
+	iowrite32(0, data->bar + FENCE_COUNTER);
+	iowrite32(START_DEVICE & !ENABLE_FETCH, data->bar + ENABLE); //Disable order buffer
 	return 0;
 
+err_bar:
+	pci_release_regions(dev);
+err_regions:
+	pci_disable_device(dev);
 err_device:
-	device_destroy(&doomdev_class, doomdev_major);
-	class_unregister(&doomdev_class);
+	device_destroy(&doomdev_class, data->major);
 err_class:
 	cdev_del(&data->doom_cdev);
 err_cdev:
-	unregister_chrdev_region(doomdev_major, 256);
 	kfree(data);
 
 	return err;
 }
 
-static void doomdev_remove(struct pci_dev *dev)
+static void doomdriv_remove(struct pci_dev *dev)
 {
 	struct devdata *data = pci_get_drvdata(dev);
+	pci_clear_master(dev);
+	pci_iounmap(dev, data->bar);
+	pci_release_regions(dev);
+	pci_disable_device(dev);
 	device_destroy(&doomdev_class, data->major);
 	cdev_del(&data->doom_cdev);
-	list_del(&data->dev_list);
 	kfree(data);
 }
 
-static int doomdev_suspend(struct pci_dev *dev, pm_message_t state)
+static int doomdriv_suspend(struct pci_dev *dev, pm_message_t state)
 {
 	return 0;
 }
 
-static int doomdev_resume(struct pci_dev *dev)
+static int doomdriv_resume(struct pci_dev *dev)
 {
 	return 0;
 }
 
-static void doomdev_shutdown(struct pci_dev *dev)
+static void doomdriv_shutdown(struct pci_dev *dev)
 {
 }
 
-static int doomdev_open(struct inode *ino, struct file *filep)
-{
-	return 0;
-}
-
-static int doomdev_release(struct inode *ino, struct file *filep)
+static int doomfile_open(struct inode *ino, struct file *filep)
 {
 	return 0;
 }
 
-static ssize_t doomdev_read(struct file *file, char __user *buf, size_t count, loff_t *filepos)
+static int doomfile_release(struct inode *ino, struct file *filep)
+{
+	return 0;
+}
+
+static ssize_t doomfile_read(struct file *file, char __user *buf, size_t count, loff_t *filepos)
 {
 /*	size_t file_len = hello_len * hello_repeats;
 	loff_t pos = *filepos;
@@ -139,7 +169,9 @@ static ssize_t doomdev_read(struct file *file, char __user *buf, size_t count, l
 	return 0;
 }
 
-static long doomdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
+
+
+static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
 /*	if (cmd != HELLO_IOCTL_SET_REPEATS)
 		return -ENOTTY;
@@ -149,10 +181,10 @@ static long doomdev_ioctl(struct file *file, unsigned int cmd, unsigned long arg
 	return 0;
 }
 
-static int doomdev_init(void)
+static int harddoom_init(void)
 {
 	int err;
-	if ((err = alloc_chrdev_region(&doomdev_major, 0, 256, "doomdev")))
+	if ((err = alloc_chrdev_region(&doomdev_major, 0, 256, "harddoom")))
 		return err;
 	if ((err = class_register(&doomdev_class))) {
 		unregister_chrdev_region(doomdev_major, 256);
@@ -160,26 +192,15 @@ static int doomdev_init(void)
 	}
 	if ((err = pci_register_driver(&doomdev_driver)))
 		return err;
-	INIT_LIST_HEAD(&dev_list);
 	return 0;
 }
 
-static void doomdev_cleanup(void)
+static void harddoom_cleanup(void)
 {
-	//TODO cleanup every device instance
 	pci_unregister_driver(&doomdev_driver);
-	struct list_head *acc, *nxt;
-	struct devdata *entry;
-	list_for_each_safe(acc, nxt, &dev_list) {
-		entry = (struct devdata*) list_entry(acc, struct devdata, dev_list);
-		device_destroy(&doomdev_class, entry->major);
-		cdev_del(&entry->doom_cdev);
-		list_del(&entry->dev_list);
-		kfree(entry);
-	}
 	class_unregister(&doomdev_class);
 	unregister_chrdev_region(doomdev_major, 256);
 }
 
-module_init(doomdev_init);
-module_exit(doomdev_cleanup);
+module_init(harddoom_init);
+module_exit(harddoom_cleanup);

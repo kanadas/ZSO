@@ -19,7 +19,7 @@ include_files = [
 
 flags = [
     '-D__KERNEL__',
-    '-std=gnu89',
+    '-std=gnu99',
     '-xc',
     '-nostdinc',
 ]
