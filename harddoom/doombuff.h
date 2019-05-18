@@ -1,21 +1,23 @@
 #ifndef DOOMBUFF
 #define DOOMBUFF
 
-#ifdef __KERNEL__
 #include <linux/kernel.h>
-#else
-#include <stdint.h>
-#endif
 
 struct doombuff_data {
 	struct device *dev;
 	dma_addr_t dma_pagetable;
 	uint32_t *cpu_pagetable;
 	size_t npages;
-	void ** cpu_pages;
+	char ** cpu_pages;
+	ssize_t width, height, size;
 };
 
-int doombuff_create(struct device *dev, uint32_t size);
+#define DOOMBUFF_ENABLED 1
+#define DOOMBUFF_WRITABLE 2
+
+int doombuff_surface_create(struct device *dev, size_t width, size_t height);
+int doombuff_create(struct device *dev, uint32_t size, uint8_t flags);
 dma_addr_t doombuff_pagetable(int fd);
+struct doombuff_data *doombuff_get_data(int fd);
 
 #endif //DOOMBUFF

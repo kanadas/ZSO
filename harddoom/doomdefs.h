@@ -1,14 +1,4 @@
 
-//Orders:
-#define COPY_RECT 0
-#define FILL_RECT 1
-#define DRAW_LINE 2
-#define DRAW_BACKGROUND 3
-#define DRAW_COLUMN 4
-#define DRAW_FUZZ 5
-#define DRAW_SPAN 6
-#define SETUP 7
-
 //Register offsets
 #define CMD_FREE 0x70
 #define CMD_SEND 0x40 //8 fields (256 bits)

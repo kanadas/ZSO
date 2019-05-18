@@ -9,14 +9,17 @@
 #include <linux/slab.h>
 #include <linux/gfp.h>
 
+#include "harddoom2.h"
 #include "doomdev2.h"
 #include "doomdefs.h"
 #include "doomcode2.h"
+#include "doombuff.h"
 
 MODULE_LICENSE("GPL");
 
 struct devdata {
 	dev_t major;
+	struct device *doom_file;
 	struct device *doom_device;
 	struct cdev doom_cdev;
 	void __iomem* bar;
@@ -64,13 +67,14 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	int err;
 	struct devdata *data = (struct devdata*) kmalloc(sizeof(struct devdata), GFP_KERNEL);
 	data->major = doomdev_major;
+	data->doom_device = &dev->dev;
 	if(data == NULL) return -ENOMEM;
 	cdev_init(&data->doom_cdev, &doomdev_fops);
 	if ((err = cdev_add(&data->doom_cdev, doomdev_major, 1)))
 		goto err_cdev;
-	data->doom_device = device_create(&doomdev_class, &dev->dev, doomdev_major, 0, "doom%d", MINOR(doomdev_major));
-	if (IS_ERR(data->doom_device)) {
-		err = PTR_ERR(data->doom_device);
+	data->doom_file = device_create(&doomdev_class, &dev->dev, doomdev_major, 0, "doom%d", MINOR(doomdev_major));
+	if (IS_ERR(data->doom_file)) {
+		err = PTR_ERR(data->doom_file);
 		goto err_device;
 	}
 	if ((err = pci_enable_device(dev)))
@@ -143,6 +147,8 @@ static void doomdriv_shutdown(struct pci_dev *dev)
 
 static int doomfile_open(struct inode *ino, struct file *filep)
 {
+	//get devdata struct
+	filep->private_data = container_of(ino->i_cdev, struct devdata, doom_cdev);
 	return 0;
 }
 
@@ -173,11 +179,25 @@ static ssize_t doomfile_read(struct file *file, char __user *buf, size_t count, 
 
 static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long arg)
 {
-/*	if (cmd != HELLO_IOCTL_SET_REPEATS)
-		return -ENOTTY;
-	if (arg > HELLO_MAX_REPEATS)
-		return -EINVAL;
-	hello_repeats = arg;*/
+	struct devdata *data = (struct devdata*)(file->private_data);
+	struct device *dev = data->doom_device;
+	switch (cmd) {
+	case DOOMDEV2_IOCTL_CREATE_SURFACE: {
+		struct doomdev2_ioctl_create_surface *args = (struct doomdev2_ioctl_create_surface *)arg;
+		if(args->width % 64 || args->width < 64 || args->height < 1) return -EINVAL;
+		if(args->width > 2048 || args->height > 2048) return -EOVERFLOW;
+		return doombuff_create(dev, args->width * args->height, DOOMBUFF_ENABLED | DOOMBUFF_WRITABLE);
+	}
+	case DOOMDEV2_IOCTL_CREATE_BUFFER: {
+		struct doomdev2_ioctl_create_buffer *args = (struct doomdev2_ioctl_create_buffer*) arg;
+		if(args->size < 1) return -EINVAL;
+		if(args->size > 1 << 22) return -EOVERFLOW;
+		return doombuff_create(dev, args->size, DOOMBUFF_ENABLED);
+	}
+	case DOOMDEV2_IOCTL_SETUP:{
+		//TODO: implement sending commands
+	}
+	}
 	return 0;
 }
 
