@@ -1,1 +1,2 @@
 obj-m := harddoom2.o
+harddoom2-objs := doomcmds.o doombuff.o harddoom.o

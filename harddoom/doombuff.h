@@ -9,7 +9,7 @@ struct doombuff_data {
 	uint32_t *cpu_pagetable;
 	size_t npages;
 	char ** cpu_pages;
-	ssize_t width, height, size;
+	size_t width, height, size;
 };
 
 #define DOOMBUFF_ENABLED 1

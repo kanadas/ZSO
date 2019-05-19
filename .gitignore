@@ -4,3 +4,9 @@ test*
 *.qcow2
 linux/
 qemu/
+*.cmd
+harddoom/.tmp_versions/
+harddoom/Module.symvers
+*.ko
+*.mod.c
+harddoom/modules.order

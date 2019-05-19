@@ -11,7 +11,7 @@
 
 static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, loff_t *filepos);
 static ssize_t doombuff_write(struct file *, const char __user *, size_t, loff_t *);
-static loff_t doombuff_llseek(struct file *, loff_t, int);
+//static loff_t doombuff_llseek(struct file *, loff_t, int);
 static int doombuff_release(struct inode *ino, struct file *filep);
 
 static struct file_operations doombuff_fops = {
@@ -61,8 +61,10 @@ static ssize_t doombuff_write(struct file *file, const char __user *buf, size_t 
 
 static int doombuff_release(struct inode *ino, struct file *filep)
 {
+	//TODO check if it is not used in device
 	struct doombuff_data *data = (struct doombuff_data*)filep->private_data;
-	for(int i = 0; i < data->npages; ++i)
+	int i;
+	for(i = 0; i < data->npages; ++i)
 		dma_free_coherent(data->dev, DOOMBUFF_PAGE_SIZE, data->cpu_pages[i],
 			(data->cpu_pagetable[i] >> 6) << 12);
 	kfree(data->cpu_pages);
@@ -74,8 +76,9 @@ static int doombuff_release(struct inode *ino, struct file *filep)
 int doombuff_surface_create(struct device *dev, size_t width, size_t height)
 {
 	int fd = doombuff_create(dev, width * height, DOOMBUFF_ENABLED | DOOMBUFF_WRITABLE);
+	struct doombuff_data *data;
 	if(fd < 0) return fd;
-	struct doombuff_data *data = doombuff_get_data(fd);
+	data = doombuff_get_data(fd);
 	data->width = width;
 	data->height = height;
 	return fd;
@@ -85,22 +88,24 @@ int doombuff_create(struct device *dev, uint32_t size, uint8_t flags)
 {
 	int err = -ENOMEM;
 	int npages = DIV_ROUND_UP(size, DOOMBUFF_PAGE_SIZE);
-	if (npages > 1024) return -EINVAL;
 	int page = 0;
-	struct doombuff_data *data = kmalloc(sizeof(struct doombuff_data), GFP_KERNEL);
+	struct doombuff_data *data;
+	dma_addr_t dpage;
+	if (npages > 1024) return -EINVAL;
+	data = kmalloc(sizeof(struct doombuff_data), GFP_KERNEL);
 	if(data == NULL) return -ENOMEM;
 	data->npages = npages;
 	data->size = size;
-	data->width = -1;
-	data->height = -1;
+	data->width = 0;
+	data->height = 0;
 	data->cpu_pagetable = (uint32_t*) dma_alloc_coherent(dev,
 		max(sizeof(uint32_t)*npages, 256UL), &data->dma_pagetable, GFP_KERNEL);
 	if(data == NULL) goto err_pagetable;
 	data->cpu_pages = kmalloc(sizeof(void*)*npages, GFP_KERNEL);
 	if(data->cpu_pages == NULL) goto err_cpu_pages;
-	dma_addr_t dpage;
 	for(; page < npages; ++page) {
-		if((data->cpu_pages[page] = dma_alloc_coherent(dev, DOOMBUFF_PAGE_SIZE, &dpage, GFP_KERNEL))
+		if((data->cpu_pages[page] =
+			dma_alloc_coherent(dev, DOOMBUFF_PAGE_SIZE, &dpage, GFP_KERNEL))
 			== NULL) goto err_page;
 		data->cpu_pagetable[page] = (flags & 0xf) | (lower_32_bits(dpage >> 12) << 4);
 	}
@@ -108,11 +113,13 @@ int doombuff_create(struct device *dev, uint32_t size, uint8_t flags)
 
 	return err;
 
-err_page:
-	for(int i = 0; i < page; ++i)
+err_page: {
+	int i;
+	for(i = 0; i < page; ++i)
 		dma_free_coherent(dev, DOOMBUFF_PAGE_SIZE, data->cpu_pages[i],
 			(data->cpu_pagetable[i] >> 6) << 12);
 	kfree(data->cpu_pages);
+}
 err_cpu_pages:
 	dma_free_coherent(dev, max(sizeof(uint32_t)*npages, 256UL), data->cpu_pagetable, data->dma_pagetable);
 err_pagetable:

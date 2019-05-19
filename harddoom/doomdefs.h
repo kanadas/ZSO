@@ -24,3 +24,21 @@
 #define INTR_CLEAR 0xfff7
 #define START_DEVICE 0x3ff
 #define ENABLE_FETCH 0x1 //fetch block enable flag
+
+#define INTR_FENCE 1
+#define INTR_PONG_SYNC 2
+#define INTR_PONG_ASYNC 4
+#define INTR_FE_ERROR (1 << 4)
+#define INTR_CMD_OVERFLOW (1 << 5)
+#define INTR_SURF_DST_OVERFLOW (1 << 6)
+#define INTR_SURF_SRC_OVERFLOW (1 << 7)
+#define INTR_PAGE_FAULT_CMD (1 << 8)
+#define INTR_PAGE_FAULT_SURF_DST (1 << 9)
+#define INTR_PAGE_FAULT_SURF_SRC (1 << 10)
+#define INTR_PAGE_FAULT_TEXTURE (1 << 11)
+#define INTR_PAGE_FAULT_FLAT (1 << 12)
+#define INTR_PAGE_FAULT_TRANSLATION (1 << 13)
+#define INTR_PAGE_FAULT_COLORMAP (1 << 14)
+#define INTR_PAGE_FAULT_TRANMAP (1 << 15)
+
+#define QUEUE_SIZE 512

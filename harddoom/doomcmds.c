@@ -3,32 +3,12 @@
 #include <linux/device.h>
 #include <linux/pci.h>
 #include <linux/slab.h>
+#include <linux/file.h>
 
+#include "doomcmds.h"
 #include "doomdev2.h"
 #include "doombuff.h"
 #include "doomdefs.h"
-
-struct doombuff_sizes {
-	size_t surf_dst_w, surf_dst_h;
-	size_t surf_src_w, surf_src_h;
-	size_t texture;
-	size_t flat;
-	size_t colormap;
-	size_t translation;
-};
-
-#define DOOMBUFF_CLEAR_SIZES {\
-	.surf_dst_w = 0,\
-	.surf_dst_h = 0,\
-	.surf_src_w = 0,\
-	.surf_src_h = 0,\
-	.texture = 0,\
-	.flat = 0,\
-	.colormap = 0,\
-	.translation = 0}
-
-struct doomdev2_ioctl_setup active_buff;
-struct doombuff_sizes buff_size;
 
 //word 0
 #define COPY_RECT 0
@@ -40,10 +20,11 @@ struct doombuff_sizes buff_size;
 #define DRAW_SPAN 6
 #define SETUP 7
 
-#define CMD_FLAG_INTERLOCK 1 << 4
-#define CMD_FLAG_PING_ASYNC 1 << 5
-#define CMD_FLAG_PING_SYNC 1 << 6
-#define CMD_FLAG_FENCE 1 << 7
+//flags from header file
+//#define CMD_FLAG_INTERLOCK 1 << 4
+//#define CMD_FLAG_PING_ASYNC 1 << 5
+//#define CMD_FLAG_PING_SYNC 1 << 6
+//#define CMD_FLAG_FENCE 1 << 7
 #define CMD_FLAG_TRANSLATION 1 << 8
 #define CMD_FLAG_COLORMAP 1 << 9
 #define CMD_FLAG_TRANMAP 1 << 10
@@ -69,16 +50,15 @@ struct doombuff_sizes buff_size;
 //word 7
 #define cmd_texture(limit, height) ((limit) | ((height) << 16))
 
-void doom_write_cmd(void __iomem* bar, const uint32_t *words)
+void doom_send_cmd(void __iomem* bar, const uint32_t *words)
 {
-	//TODO something better (ping - pong)
-	while(ioread32(bar + CMD_FREE)) {}
-	for(int i = 0; i < 8; ++i) iowrite32(words[i], bar + CMD_SEND + i * 32);
+	int i;
+	for(i = 0; i < 8; ++i) iowrite32(words[i], bar + CMD_SEND + i * 32);
 }
 
-int doom_send_cmd(void __iomem* bar, struct doomdev2_cmd cmd, uint32_t flags)
+int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
+		struct doomdev2_ioctl_setup active_buff, struct doombuff_sizes buff_size)
 {
-	uint32_t words[8];
 	if(active_buff.surf_dst_fd < 0) return -EINVAL;
 	switch (cmd.type) {
 	case DOOMDEV2_CMD_TYPE_COPY_RECT:
@@ -88,7 +68,6 @@ int doom_send_cmd(void __iomem* bar, struct doomdev2_cmd cmd, uint32_t flags)
 			cmd.copy_rect.pos_src_x + cmd.copy_rect.width >= buff_size.surf_src_w ||
 			cmd.copy_rect.pos_src_y + cmd.copy_rect.height >= buff_size.surf_src_h)
 			return -EOVERFLOW;
-		//TODO INTERLOCK
 		words[0] = COPY_RECT | flags | CMD_FLAG_INTERLOCK;
 		words[1] = 0;
 		words[2] = cmd_pos(cmd.copy_rect.pos_dst_x, cmd.copy_rect.pos_dst_y, 0);
@@ -212,7 +191,6 @@ int doom_send_cmd(void __iomem* bar, struct doomdev2_cmd cmd, uint32_t flags)
 		words[6] = cmd_fuzz(cmd.draw_fuzz.fuzz_start, cmd.draw_fuzz.fuzz_end, cmd.draw_fuzz.fuzz_pos);
 		words[7] = 0;
 	}
-	doom_write_cmd(bar, words);
 	return 0;
 }
 
@@ -226,10 +204,10 @@ int doom_send_cmd(void __iomem* bar, struct doomdev2_cmd cmd, uint32_t flags)
 
 #define setup_flags(flags, dst_width, src_width) ((flags) | ((dst_width) << 16) | ((src_width) << 24))
 
-int doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t flags)
+long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t flags,
+	struct doomdev2_ioctl_setup *active_buff, struct doombuff_sizes *buff_size)
 {
 	uint32_t words[8] = {0};
-	uint8_t dst_width = 0, src_width = 0;
 	struct doombuff_sizes new_sizes = DOOMBUFF_CLEAR_SIZES;
 	struct doombuff_data *data;
 	if(arg.surf_dst_fd > 0) {
@@ -237,6 +215,7 @@ int doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t 
 		data = doombuff_get_data(arg.surf_dst_fd);
 		new_sizes.surf_dst_w = data->width;
 		new_sizes.surf_dst_h = data->height;
+		if(data->width <= 0) return -EINVAL;
 		words[1] = data->dma_pagetable >> 8;
 	}
 	if(arg.surf_src_fd > 0) {
@@ -244,6 +223,7 @@ int doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t 
 		data = doombuff_get_data(arg.surf_src_fd);
 		new_sizes.surf_src_w = data->width;
 		new_sizes.surf_src_h = data->height;
+		if(data->width <= 0) return -EINVAL;
 		words[2] = data->dma_pagetable >> 8;
 	}
 	if(arg.texture_fd > 0) {
@@ -279,10 +259,25 @@ int doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t 
 		if(data->size != 1 << 16) return -EINVAL;
 		words[7] = data->dma_pagetable >> 8;
 	}
+
+	if(arg.surf_dst_fd > 0) get_file(fget(arg.surf_dst_fd));
+	if(arg.surf_src_fd > 0) get_file(fget(arg.surf_src_fd));
+	if(arg.texture_fd > 0) get_file(fget(arg.texture_fd));
+	if(arg.translation_fd > 0) get_file(fget(arg.translation_fd));
+	if(arg.colormap_fd > 0) get_file(fget(arg.colormap_fd));
+	if(arg.tranmap_fd > 0) get_file(fget(arg.tranmap_fd));
+
+	if(active_buff->surf_dst_fd > 0) fput(fget(active_buff->surf_dst_fd));
+	if(active_buff->surf_src_fd > 0) fput(fget(active_buff->surf_src_fd));
+	if(active_buff->texture_fd > 0) fput(fget(active_buff->texture_fd));
+	if(active_buff->translation_fd > 0) fput(fget(active_buff->translation_fd));
+	if(active_buff->colormap_fd > 0) fput(fget(active_buff->colormap_fd));
+	if(active_buff->tranmap_fd > 0) fput(fget(active_buff->tranmap_fd));
+
 	words[0] = setup_flags(SETUP | flags, new_sizes.surf_dst_w, new_sizes.surf_src_w);
-	doom_write_cmd(bar, words);
-	buff_size = new_sizes;
-	active_buff = arg;
+	doom_send_cmd(bar, words);
+	*buff_size = new_sizes;
+	*active_buff = arg;
 	return 0;
 }
 
