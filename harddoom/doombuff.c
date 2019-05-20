@@ -14,7 +14,7 @@ static ssize_t doombuff_write(struct file *, const char __user *, size_t, loff_t
 //static loff_t doombuff_llseek(struct file *, loff_t, int);
 static int doombuff_release(struct inode *ino, struct file *filep);
 
-static struct file_operations doombuff_fops = {
+struct file_operations doombuff_fops = {
 	.owner = THIS_MODULE,
 	.read = doombuff_read,
 	.write = doombuff_write,
@@ -28,6 +28,7 @@ static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, 
 	int pg = *filepos / DOOMBUFF_PAGE_SIZE;
 	int offpg = *filepos % DOOMBUFF_PAGE_SIZE;
 	size_t to_write = count;
+	printk(KERN_DEBUG "HARDDOOM reading from buffer file\n");
 	if(pg >= data->npages) return 0;
 	memcpy(buf, data->cpu_pages[pg++] + offpg, min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg));
 	count -= min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg);
@@ -44,6 +45,7 @@ static ssize_t doombuff_write(struct file *file, const char __user *buf, size_t 
 	int pg = *filepos / DOOMBUFF_PAGE_SIZE;
 	int offpg = *filepos % DOOMBUFF_PAGE_SIZE;
 	size_t to_write = count;
+	printk(KERN_DEBUG "HARDDOOM writing to buffer file\n");
 	if(pg >= data->npages) return 0;
 	memcpy(data->cpu_pages[pg++] + offpg, buf, min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg));
 	count -= min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg);
@@ -64,6 +66,7 @@ static int doombuff_release(struct inode *ino, struct file *filep)
 	//TODO check if it is not used in device
 	struct doombuff_data *data = (struct doombuff_data*)filep->private_data;
 	int i;
+	printk(KERN_DEBUG "HARDDOOM releasing buffer file\n");
 	for(i = 0; i < data->npages; ++i)
 		dma_free_coherent(data->dev, DOOMBUFF_PAGE_SIZE, data->cpu_pages[i],
 			(data->cpu_pagetable[i] >> 6) << 12);
@@ -91,6 +94,7 @@ int doombuff_create(struct device *dev, uint32_t size, uint8_t flags)
 	int page = 0;
 	struct doombuff_data *data;
 	dma_addr_t dpage;
+	printk(KERN_DEBUG "HARDDOOM creating buffer file\n");
 	if (npages > 1024) return -EINVAL;
 	data = kmalloc(sizeof(struct doombuff_data), GFP_KERNEL);
 	if(data == NULL) return -ENOMEM;
@@ -111,6 +115,7 @@ int doombuff_create(struct device *dev, uint32_t size, uint8_t flags)
 	}
 	if ((err = anon_inode_getfd("doombuff", &doombuff_fops, data, FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE)) < 0) goto err_page;
 
+	printk("HARDDOOM created buffer : %d\n", err);
 	return err;
 
 err_page: {

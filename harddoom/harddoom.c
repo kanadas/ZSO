@@ -94,6 +94,7 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	int minor_off = find_first_zero_bit(doomdriv_minor_numbers, 256);
 	int code_len = ARRAY_SIZE(doomcode2);
 	int i;
+	printk(KERN_INFO "Probing yo HARDDOOM device!\n");
 	if(data == NULL) return -ENOMEM;
 	data->major = doomdev_major + minor_off;
 	cdev_init(&data->doom_cdev, &doomdev_fops);
@@ -131,6 +132,7 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	for(i = 0; i < code_len; ++i)
 		iowrite32(doomcode2[i], data->bar + FE_CODE_WINDOW);
 	doomdriv_reset_device(data->bar);
+	printk(KERN_INFO "Yo HARDDOOM device is now running!\n");
 	return 0;
 
 err_irq:
@@ -152,6 +154,7 @@ err_cdev:
 static void doomdriv_remove(struct pci_dev *dev)
 {
 	struct devdata *data = pci_get_drvdata(dev);
+	printk(KERN_INFO "Removing yo HARDDOOM device :(\n");
 	clear_bit(data->major - doomdev_major, doomdriv_minor_numbers);
 	mutex_destroy(&data->io);
 	//completion destroy??
@@ -186,6 +189,7 @@ static int doomfile_open(struct inode *ino, struct file *filep)
 {
 	//get devdata struct
 	filep->private_data = container_of(ino->i_cdev, struct devdata, doom_cdev);
+	printk(KERN_INFO "Some madman opened HARDDOOM device file!\n");
 	return 0;
 }
 
@@ -202,11 +206,14 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 	struct doomdev2_cmd *cmds = (struct doomdev2_cmd*)buf;
 	uint32_t *(words[2])[8] = {0};
 	int i = 1;
+	printk(KERN_INFO "Writing to yo HARDDOM device!\n");
 	if(count % sizeof(struct doomdev2_cmd)) return -EINVAL;
 	if(n == 0) return 0;
 	if((err = mutex_lock_killable(&data->io))) return err;
-	if((err = doom_write_cmd(*words[0], cmds[0], 0, data->active_buff, data->buff_size)))
+	if((err = doom_write_cmd(*words[0], cmds[0], 0, data->active_buff, data->buff_size))) {
+		mutex_unlock(&data->io);
 		return err;
+	}
 	while(i < n) {
 		while((err = doom_write_cmd(*words[1], cmds[i], 0,
 				data->active_buff, data->buff_size)) &&
@@ -216,16 +223,21 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 			++i;
 		}
 		if(err) {
-			if(i % QUEUE_SIZE) return i * sizeof(struct doomdev2_cmd);
+			if(i % QUEUE_SIZE) {
+				mutex_unlock(&data->io);
+				return i * sizeof(struct doomdev2_cmd);
+			}
 			*words[0][0] |= CMD_FLAG_PING_SYNC;
 			reinit_completion(&data->write);
 			doom_send_cmd(data->bar, *words[0]);
 			wait_for_completion_killable(&data->write);
+			mutex_unlock(&data->io);
 			return (i + 1) * sizeof(struct doomdev2_cmd);
 		}
 		++i;
 	}
 	mutex_unlock(&data->io);
+	printk(KERN_INFO "Finished writing to yo HARDDOM device!\n");
 	return count;
 }
 
@@ -233,6 +245,7 @@ static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 {
 	struct devdata *data = (struct devdata*)(file->private_data);
 	struct device *dev = data->doom_device;
+	printk(KERN_INFO "Ioctling yo HARDDOM device!\n");
 	switch (cmd) {
 	case DOOMDEV2_IOCTL_CREATE_SURFACE: {
 		struct doomdev2_ioctl_create_surface *args = (struct doomdev2_ioctl_create_surface *)arg;
@@ -249,21 +262,50 @@ static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 	case DOOMDEV2_IOCTL_SETUP: {
 		struct doomdev2_ioctl_setup *args = (struct doomdev2_ioctl_setup *) arg;
 		long err;
-		if(args->surf_dst_fd > 0 && fget(args->surf_dst_fd)->f_op != &doomdev_fops)
+		struct file *surf_dst = fget(args->surf_dst_fd);
+		struct file *surf_src = fget(args->surf_src_fd);
+		struct file *texture = fget(args->texture_fd);
+		struct file *flat = fget(args->flat_fd);
+		struct file *colormap = fget(args->colormap_fd);
+		struct file *translation = fget(args->translation_fd);
+		struct file *tranmap = fget(args->tranmap_fd);
+
+		printk(KERN_DEBUG "HARDDOOM: ioctl setup arg: %d %d %d %d %d %d %d\n", args->surf_dst_fd, args->surf_src_fd, args->texture_fd, args->flat_fd, args->translation_fd, args->colormap_fd, args->tranmap_fd);
+
+		printk(KERN_DEBUG "HARDDOOM: surf_dst: %lx, surf_dst->f_op: %lx, doomdev_fops: %lx\n", surf_dst, surf_dst->f_op, &doombuff_fops);
+
+		if(args->surf_dst_fd > 0 && (IS_ERR_OR_NULL(surf_dst) ||
+			surf_dst->f_op != &doombuff_fops))
 			return -EINVAL;
-		if(args->surf_src_fd > 0 && fget(args->surf_src_fd)->f_op != &doomdev_fops)
+
+		printk(KERN_DEBUG "HARDDODODOODODDOM dupa1\n");
+
+		if(args->surf_src_fd > 0 && (IS_ERR_OR_NULL(surf_src) ||
+			surf_src->f_op != &doombuff_fops))
 			return -EINVAL;
-		if(args->texture_fd > 0 && fget(args->texture_fd)->f_op != &doomdev_fops)
+		if(args->texture_fd > 0 &&  (IS_ERR_OR_NULL(texture) ||
+			surf_dst->f_op != &doombuff_fops))
 			return -EINVAL;
-		if(args->flat_fd > 0 && fget(args->flat_fd)->f_op != &doomdev_fops)
+
+		printk(KERN_DEBUG "HARDODODODODODOM dupa2\n");
+
+		if(args->flat_fd > 0 &&  (IS_ERR_OR_NULL(flat) ||
+			flat->f_op != &doombuff_fops))
 			return -EINVAL;
-		if(args->colormap_fd > 0 && fget(args->colormap_fd)->f_op != &doomdev_fops)
+		if(args->colormap_fd > 0 &&  (IS_ERR_OR_NULL(colormap) ||
+			colormap->f_op != &doombuff_fops))
 			return -EINVAL;
-		if(args->translation_fd > 0 && fget(args->translation_fd)->f_op != &doomdev_fops)
+		if(args->translation_fd > 0 &&  (IS_ERR_OR_NULL(translation) ||
+			translation->f_op != &doombuff_fops))
 			return -EINVAL;
-		if(args->tranmap_fd > 0 && fget(args->tranmap_fd)->f_op != &doomdev_fops)
+		if(args->tranmap_fd > 0 &&  (IS_ERR_OR_NULL(tranmap) ||
+			tranmap->f_op != &doombuff_fops))
 			return -EINVAL;
 		if((err = mutex_lock_killable(&data->io))) return err;
+
+
+		printk(KERN_DEBUG "HARDODODODODODOM dupa3\n");
+
 		err = doom_setup_cmd(data->bar, *args, 0, &data->active_buff, &data->buff_size);
 		mutex_unlock(&data->io);
 		return err;
@@ -281,6 +323,7 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 	if(intrs & INTR_FENCE) {
 		//Not using
 	} else if(intrs & INTR_PONG_SYNC) {
+		printk(KERN_INFO "HARDDOOM ping-pong");
 		complete(&data->write);
 	} else if(intrs & INTR_PONG_ASYNC) {
 		//Not using
@@ -298,7 +341,8 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 		if(intrs & INTR_PAGE_FAULT_TRANSLATION) strcpy(error, "PAGE_FAULT_TRANSLATION");
 		if(intrs & INTR_PAGE_FAULT_COLORMAP) strcpy(error, "PAGE_FAULT_COLORMAP");
 		if(intrs & INTR_PAGE_FAULT_TRANMAP) strcpy(error, "PAGE_FAULT_TRANMAP");
-		printk(KERN_ERR "Doom device error: %s. Restarting device.", error);
+		printk(KERN_ERR "Doom device error: %s. Restarting device.\n", error);
+		printk(KERN_DEBUG "Intr register: %x\n", intrs);
 		doomdriv_reset_device(data->bar);
 	}
 	return IRQ_HANDLED;
@@ -307,6 +351,7 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 static int harddoom_init(void)
 {
 	int err;
+	printk(KERN_INFO "Initing yo HARDDOOM2 driver!\n");
 	if ((err = alloc_chrdev_region(&doomdev_major, 0, 256, "harddoom")))
 		return err;
 	if ((err = class_register(&doomdev_class))) {
@@ -320,6 +365,7 @@ static int harddoom_init(void)
 
 static void harddoom_cleanup(void)
 {
+	printk(KERN_INFO "Removing yo HARDDOOM2 driver :(\n");
 	pci_unregister_driver(&doomdev_driver);
 	class_unregister(&doomdev_class);
 	unregister_chrdev_region(doomdev_major, 256);

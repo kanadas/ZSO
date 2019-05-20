@@ -1,6 +1,4 @@
-#Kernel sources dir -- change
-#KDIR ?= /lib/modules/`uname -r`/build
-KDIR ?= ../linux/
+KDIR ?= /lib/modules/`uname -r`/build
 
 default:
 	$(MAKE) -C $(KDIR) M=$$PWD

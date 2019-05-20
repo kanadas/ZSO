@@ -15,6 +15,8 @@ struct doombuff_data {
 #define DOOMBUFF_ENABLED 1
 #define DOOMBUFF_WRITABLE 2
 
+extern struct file_operations doombuff_fops;
+
 int doombuff_surface_create(struct device *dev, size_t width, size_t height);
 int doombuff_create(struct device *dev, uint32_t size, uint8_t flags);
 dma_addr_t doombuff_pagetable(int fd);

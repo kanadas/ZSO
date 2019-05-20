@@ -1,5 +1,5 @@
 *.o
-test*
+zad1/test*
 *.gdb_history
 *.qcow2
 linux/

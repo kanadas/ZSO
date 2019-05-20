@@ -218,6 +218,9 @@ long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t
 		if(data->width <= 0) return -EINVAL;
 		words[1] = data->dma_pagetable >> 8;
 	}
+
+	printk(KERN_DEBUG "HARDODODODODODOM dupa4\n");
+
 	if(arg.surf_src_fd > 0) {
 		flags |= SETUP_FLAG_SURF_SRC;
 		data = doombuff_get_data(arg.surf_src_fd);
@@ -232,6 +235,9 @@ long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t
 		new_sizes.texture = data->size;
 		words[3] = data->dma_pagetable >> 8;
 	}
+
+	printk(KERN_DEBUG "HARDODODODODODOM dupa5\n");
+
 	if(arg.flat_fd > 0) {
 		flags |= SETUP_FLAG_FLAT;
 		data = doombuff_get_data(arg.flat_fd);
@@ -260,16 +266,22 @@ long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t
 		words[7] = data->dma_pagetable >> 8;
 	}
 
+	printk(KERN_DEBUG "HARDODODODODODOM dupa6\n");
+
 	if(arg.surf_dst_fd > 0) get_file(fget(arg.surf_dst_fd));
 	if(arg.surf_src_fd > 0) get_file(fget(arg.surf_src_fd));
 	if(arg.texture_fd > 0) get_file(fget(arg.texture_fd));
+	if(arg.flat_fd > 0) get_file(fget(arg.flat_fd));
 	if(arg.translation_fd > 0) get_file(fget(arg.translation_fd));
 	if(arg.colormap_fd > 0) get_file(fget(arg.colormap_fd));
 	if(arg.tranmap_fd > 0) get_file(fget(arg.tranmap_fd));
 
+	printk(KERN_DEBUG "HARDDOOM: ioctl: active_buff: %d %d %d %d %d %d %d\n", active_buff->surf_dst_fd, active_buff->surf_src_fd, active_buff->texture_fd, active_buff->flat_fd, active_buff->translation_fd, active_buff->colormap_fd, active_buff->tranmap_fd);
+
 	if(active_buff->surf_dst_fd > 0) fput(fget(active_buff->surf_dst_fd));
 	if(active_buff->surf_src_fd > 0) fput(fget(active_buff->surf_src_fd));
 	if(active_buff->texture_fd > 0) fput(fget(active_buff->texture_fd));
+	if(active_buff->flat_fd > 0) get_file(fget(active_buff->flat_fd));
 	if(active_buff->translation_fd > 0) fput(fget(active_buff->translation_fd));
 	if(active_buff->colormap_fd > 0) fput(fget(active_buff->colormap_fd));
 	if(active_buff->tranmap_fd > 0) fput(fget(active_buff->tranmap_fd));
