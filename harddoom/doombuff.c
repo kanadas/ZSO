@@ -27,18 +27,18 @@ static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, 
 	struct doombuff_data *data = (struct doombuff_data*)file->private_data;
 	int pg = *filepos / DOOMBUFF_PAGE_SIZE;
 	int offpg = *filepos % DOOMBUFF_PAGE_SIZE;
-	size_t to_write = count;
+	ssize_t to_read = count;
 	if(pg >= data->npages) return 0;
 	down_read(&data->sem);
 	printk(KERN_DEBUG "HARDDOOM reading from buffer file\n");
-	memcpy(buf, data->cpu_pages[pg++] + offpg, min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg));
-	count -= min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg);
-	for(; count > 0 && pg < data->npages; count -= DOOMBUFF_PAGE_SIZE)
-		memcpy(buf, data->cpu_pages[pg++], min(count, (size_t) DOOMBUFF_PAGE_SIZE));
-	*filepos += to_write - max(count, 0UL);
+	memcpy(buf, data->cpu_pages[pg++] + offpg, min(to_read, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg));
+	to_read -= min(to_read, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg);
+	for(; to_read > 0 && pg < data->npages; to_read -= DOOMBUFF_PAGE_SIZE)
+		memcpy(buf, data->cpu_pages[pg++], min(to_read, (ssize_t) DOOMBUFF_PAGE_SIZE));
+	*filepos += count - max(to_read, 0L);
 	up_read(&data->sem);
-	printk(KERN_DEBUG "HARDDOOM read %lu bytes from buffer file\n", to_write - max(count, 0UL));
-	return to_write - max(count, 0UL);
+	printk(KERN_DEBUG "HARDDOOM read %lu bytes from buffer file\n", count - max(to_read, 0L));
+	return count - max(to_read, 0L);
 }
 
 static ssize_t doombuff_write(struct file *file, const char __user *buf, size_t count, loff_t *filepos)
@@ -46,18 +46,18 @@ static ssize_t doombuff_write(struct file *file, const char __user *buf, size_t 
 	struct doombuff_data *data = (struct doombuff_data*)file->private_data;
 	int pg = *filepos / DOOMBUFF_PAGE_SIZE;
 	int offpg = *filepos % DOOMBUFF_PAGE_SIZE;
-	size_t to_write = count;
+	ssize_t to_write = count;
 	if(pg >= data->npages) return 0;
 	down_write(&data->sem);
 	printk(KERN_DEBUG "HARDDOOM writing to buffer file\n");
-	memcpy(data->cpu_pages[pg++] + offpg, buf, min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg));
-	count -= min(count, (size_t) DOOMBUFF_PAGE_SIZE - offpg);
-	for(; count > 0 && pg < data->npages; count -= DOOMBUFF_PAGE_SIZE)
-		memcpy(data->cpu_pages[pg++], buf, min(count, (size_t) DOOMBUFF_PAGE_SIZE));
-	*filepos += to_write - max(count, 0UL);
+	memcpy(data->cpu_pages[pg++] + offpg, buf, min(to_write, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg));
+	to_write -= min(to_write, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg);
+	for(; to_write > 0 && pg < data->npages; to_write -= DOOMBUFF_PAGE_SIZE)
+		memcpy(data->cpu_pages[pg++], buf, min(to_write, (ssize_t) DOOMBUFF_PAGE_SIZE));
+	*filepos += count - max(to_write, 0L);
 	up_write(&data->sem);
-	printk(KERN_DEBUG "HARDDOOM read %lu bytes from buffer file\n", to_write - max(count, 0UL));
-	return to_write - max(count, 0UL);
+	printk(KERN_DEBUG "HARDDOOM read %lu bytes from buffer file\n", count-max(to_write, 0L));
+	return count - max(to_write, 0L);
 }
 
 static loff_t doombuff_llseek(struct file *file, loff_t off, int whence)
