@@ -2,6 +2,7 @@
 #define DOOMBUFF
 
 #include <linux/kernel.h>
+#include <linux/rwsem.h>
 
 struct doombuff_data {
 	struct device *dev;
@@ -10,6 +11,7 @@ struct doombuff_data {
 	size_t npages;
 	char ** cpu_pages;
 	size_t width, height, size;
+	struct rw_semaphore sem;
 };
 
 #define DOOMBUFF_ENABLED 1

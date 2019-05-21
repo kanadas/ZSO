@@ -53,7 +53,8 @@
 void doom_send_cmd(void __iomem* bar, const uint32_t *words)
 {
 	int i;
-	for(i = 0; i < 8; ++i) iowrite32(words[i], bar + CMD_SEND + i * 32);
+	printk(KERN_DEBUG "HARDDOOM sending command\n");
+	for(i = 0; i < 8; ++i) iowrite32(words[i], bar + CMD_SEND + i * 4);
 }
 
 int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
@@ -63,6 +64,8 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 	switch (cmd.type) {
 	case DOOMDEV2_CMD_TYPE_COPY_RECT:
 		if(active_buff.surf_src_fd < 0) return -EINVAL;
+		if(buff_size.surf_dst_w != buff_size.surf_src_w ||
+			buff_size.surf_dst_h != buff_size.surf_src_h) return -EINVAL;
 		if(cmd.copy_rect.pos_dst_x + cmd.copy_rect.width >= buff_size.surf_dst_w ||
 			cmd.copy_rect.pos_dst_y + cmd.copy_rect.height >= buff_size.surf_dst_h ||
 			cmd.copy_rect.pos_src_x + cmd.copy_rect.width >= buff_size.surf_src_w ||
@@ -194,15 +197,15 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 	return 0;
 }
 
-#define SETUP_FLAG_SURF_DST 1 << 9
-#define SETUP_FLAG_SURF_SRC 1 << 10
-#define SETUP_FLAG_TEXTURE 1 << 11
-#define SETUP_FLAG_FLAT 1 << 12
-#define SETUP_FLAG_TRANSLATION 1 << 13
-#define SETUP_FLAG_COLORMAP 1 << 14
-#define SETUP_FLAG_TRANMAP 1 << 15
+#define SETUP_FLAG_SURF_DST (1 << 9)
+#define SETUP_FLAG_SURF_SRC (1 << 10)
+#define SETUP_FLAG_TEXTURE (1 << 11)
+#define SETUP_FLAG_FLAT (1 << 12)
+#define SETUP_FLAG_TRANSLATION (1 << 13)
+#define SETUP_FLAG_COLORMAP (1 << 14)
+#define SETUP_FLAG_TRANMAP (1 << 15)
 
-#define setup_flags(flags, dst_width, src_width) ((flags) | ((dst_width) << 16) | ((src_width) << 24))
+#define setup_flags(flags, dst_width, src_width) ((flags) | ((((dst_width) >> 6) << 16) | (((src_width) >> 6) << 24)))
 
 long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t flags,
 	struct doomdev2_ioctl_setup *active_buff, struct doombuff_sizes *buff_size)
@@ -210,71 +213,86 @@ long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t
 	uint32_t words[8] = {0};
 	struct doombuff_sizes new_sizes = DOOMBUFF_CLEAR_SIZES;
 	struct doombuff_data *data;
+	struct file *surf_dst = fget(arg.surf_dst_fd);
+	struct file *surf_src = fget(arg.surf_src_fd);
+	struct file *texture = fget(arg.texture_fd);
+	struct file *flat = fget(arg.flat_fd);
+	struct file *colormap = fget(arg.colormap_fd);
+	struct file *translation = fget(arg.translation_fd);
+	struct file *tranmap = fget(arg.tranmap_fd);
+
+	printk(KERN_DEBUG "HARDDOOM: ioctl setup arg: %d %d %d %d %d %d %d\n", arg.surf_dst_fd, arg.surf_src_fd, arg.texture_fd, arg.flat_fd, arg.translation_fd, arg.colormap_fd, arg.tranmap_fd);
+
 	if(arg.surf_dst_fd > 0) {
+		if(IS_ERR_OR_NULL(surf_dst) || surf_dst->f_op != &doombuff_fops)
+			return -EINVAL;
 		flags |= SETUP_FLAG_SURF_DST;
-		data = doombuff_get_data(arg.surf_dst_fd);
+		data = surf_dst->private_data;
 		new_sizes.surf_dst_w = data->width;
 		new_sizes.surf_dst_h = data->height;
 		if(data->width <= 0) return -EINVAL;
 		words[1] = data->dma_pagetable >> 8;
 	}
-
-	printk(KERN_DEBUG "HARDODODODODODOM dupa4\n");
-
 	if(arg.surf_src_fd > 0) {
+		if(IS_ERR_OR_NULL(surf_src) || surf_src->f_op != &doombuff_fops)
+			return -EINVAL;
 		flags |= SETUP_FLAG_SURF_SRC;
-		data = doombuff_get_data(arg.surf_src_fd);
+		data = surf_src->private_data;
 		new_sizes.surf_src_w = data->width;
 		new_sizes.surf_src_h = data->height;
 		if(data->width <= 0) return -EINVAL;
 		words[2] = data->dma_pagetable >> 8;
 	}
 	if(arg.texture_fd > 0) {
+		if(IS_ERR_OR_NULL(texture) || texture->f_op != &doombuff_fops)
+			return -EINVAL;
 		flags |= SETUP_FLAG_TEXTURE;
-		data = doombuff_get_data(arg.texture_fd);
+		data = texture->private_data;
 		new_sizes.texture = data->size;
 		words[3] = data->dma_pagetable >> 8;
 	}
-
-	printk(KERN_DEBUG "HARDODODODODODOM dupa5\n");
-
 	if(arg.flat_fd > 0) {
+		if(IS_ERR_OR_NULL(flat) || flat->f_op != &doombuff_fops)
+			return -EINVAL;
 		flags |= SETUP_FLAG_FLAT;
-		data = doombuff_get_data(arg.flat_fd);
+		data = flat->private_data;
 		new_sizes.flat = data->size;
 		if(data->size % (1 << 12)) return -EINVAL;
 		words[4] = data->dma_pagetable >> 8;
 	}
 	if(arg.translation_fd > 0) {
+		if(IS_ERR_OR_NULL(translation) || translation->f_op != &doombuff_fops)
+			return -EINVAL;
 		flags |= SETUP_FLAG_TRANSLATION;
-		data = doombuff_get_data(arg.translation_fd);
+		data = translation->private_data;
 		new_sizes.translation = data->size;
 		if(data->size % (1 << 8)) return -EINVAL;
 		words[5] = data->dma_pagetable >> 8;
 	}
 	if(arg.colormap_fd > 0) {
+		if(IS_ERR_OR_NULL(colormap) || colormap->f_op != &doombuff_fops)
+			return -EINVAL;
 		flags |= SETUP_FLAG_COLORMAP;
-		data = doombuff_get_data(arg.colormap_fd);
+		data = colormap->private_data;
 		new_sizes.colormap = data->size;
 		if(data->size % (1 << 8)) return -EINVAL;
 		words[6] = data->dma_pagetable >> 8;
 	}
 	if(arg.tranmap_fd > 0) {
+		if(IS_ERR_OR_NULL(tranmap) || tranmap->f_op != &doombuff_fops)
+			return -EINVAL;
 		flags |= SETUP_FLAG_TRANMAP;
-		data = doombuff_get_data(arg.tranmap_fd);
+		data = tranmap->private_data;
 		if(data->size != 1 << 16) return -EINVAL;
 		words[7] = data->dma_pagetable >> 8;
 	}
-
-	printk(KERN_DEBUG "HARDODODODODODOM dupa6\n");
-
-	if(arg.surf_dst_fd > 0) get_file(fget(arg.surf_dst_fd));
-	if(arg.surf_src_fd > 0) get_file(fget(arg.surf_src_fd));
-	if(arg.texture_fd > 0) get_file(fget(arg.texture_fd));
-	if(arg.flat_fd > 0) get_file(fget(arg.flat_fd));
-	if(arg.translation_fd > 0) get_file(fget(arg.translation_fd));
-	if(arg.colormap_fd > 0) get_file(fget(arg.colormap_fd));
-	if(arg.tranmap_fd > 0) get_file(fget(arg.tranmap_fd));
+	if(arg.surf_dst_fd > 0) get_file(surf_dst);
+	if(arg.surf_src_fd > 0) get_file(surf_src);
+	if(arg.texture_fd > 0) get_file(texture);
+	if(arg.flat_fd > 0) get_file(flat);
+	if(arg.translation_fd > 0) get_file(translation);
+	if(arg.colormap_fd > 0) get_file(colormap);
+	if(arg.tranmap_fd > 0) get_file(tranmap);
 
 	printk(KERN_DEBUG "HARDDOOM: ioctl: active_buff: %d %d %d %d %d %d %d\n", active_buff->surf_dst_fd, active_buff->surf_src_fd, active_buff->texture_fd, active_buff->flat_fd, active_buff->translation_fd, active_buff->colormap_fd, active_buff->tranmap_fd);
 
