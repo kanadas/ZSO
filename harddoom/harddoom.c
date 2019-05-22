@@ -27,7 +27,7 @@ struct devdata {
 	struct device *doom_device;
 	struct cdev doom_cdev;
 	void __iomem* bar;
-	struct doomdev2_ioctl_setup active_buff;
+	struct doombuff_files active_buff;
 	struct doombuff_sizes buff_size;
 	struct completion write;
 	struct mutex io;
@@ -117,14 +117,14 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	pci_set_master(dev);
 	pci_set_dma_mask(dev, DMA_BIT_MASK(40));
 	pci_set_consistent_dma_mask(dev, DMA_BIT_MASK(40));
-	if((err = request_irq(dev->irq, doomdev_irq_handler, IRQF_SHARED, "harddoom", dev/*TODO*/)))
+	if((err = request_irq(dev->irq, doomdev_irq_handler, IRQF_SHARED, "harddoom", dev)))
 		goto err_irq;
 
 	data->doom_device = &dev->dev;
 	set_bit(minor_off, doomdriv_minor_numbers);
 	init_completion(&data->write);
 	mutex_init(&data->io);
-	data->active_buff = (struct doomdev2_ioctl_setup) {-1,-1,-1,-1,-1,-1,-1};
+	data->active_buff = DOOMBUFF_NO_FILES;
 	data->buff_size = DOOMBUFF_CLEAR_SIZES;
 	pci_set_drvdata(dev, data);
 
@@ -158,7 +158,7 @@ static void doomdriv_remove(struct pci_dev *dev)
 	clear_bit(data->major - doomdev_major, doomdriv_minor_numbers);
 	mutex_destroy(&data->io);
 	//completion destroy??
-	free_irq(dev->irq, dev/*TODO*/);
+	free_irq(dev->irq, dev);
 	pci_clear_master(dev);
 	pci_iounmap(dev, data->bar);
 	pci_release_regions(dev);
@@ -214,30 +214,42 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 	if((err = mutex_lock_killable(&data->io))) return err;
 	if((err = doom_write_cmd(word1, cmds[0], 0, data->active_buff, data->buff_size))) {
 		mutex_unlock(&data->io);
-		printk(KERN_DEBUG "HARDDOOM first write failed\n");
 		return err;
 	}
 	while(i < n) {
-		printk(KERN_DEBUG "HARDDOOM writing %d command\n", i);
+		//printk(KERN_DEBUG "HARDDOOM writing %d command\n", i);
 		while((err = doom_write_cmd(word2, cmds[i], 0,
 				data->active_buff, data->buff_size)) &&
 				(i + 1) % QUEUE_SIZE && i + 1 < n) {
 			doom_send_cmd(data->bar, word1);
-			memcpy(word1, word2, 8);
+			memcpy(word1, word2, 32);
 			++i;
 		}
 		if(err == 0) {
 			doom_send_cmd(data->bar, word1);
-			memcpy(word1, word2, 8);
+			memcpy(word1, word2, 32);
 			++i;
 		}
 		word1[0] |= CMD_FLAG_PING_SYNC;
 		reinit_completion(&data->write);
 		doom_send_cmd(data->bar, word1);
 		wait_for_completion_killable(&data->write);
-		mutex_unlock(&data->io);
 		if(err || i == n || (err = doom_write_cmd(word1, cmds[i], 0,
 				data->active_buff, data->buff_size))) {
+
+			/*{
+				struct doombuff_data *buff = data->active_buff.surf_dst->private_data;
+				int i, j, pos = 0;
+				printk(KERN_DEBUG "HARDDOOM: printing surf_dst. npages = %lu width = %lu, height = %lu page[0] %p\n", buff->npages, buff->width, buff->height, buff->cpu_pages[0]);
+				for(i = 0; i < data->buff_size.surf_dst_h; ++i) {
+					for(j = 0; j < data->buff_size.surf_dst_w; ++j) {
+						printk(KERN_CONT "%d", *(buff->cpu_pages[pos / 4096] + pos % 4096));
+						++pos;
+					}
+					printk(KERN_DEBUG "\n");
+				}
+			}*/
+
 			mutex_unlock(&data->io);
 			printk(KERN_DEBUG "HARDDOOM written %d out of %lu commands\n", i, n);
 			return i * sizeof(struct doomdev2_cmd);
@@ -249,6 +261,20 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 	reinit_completion(&data->write);
 	doom_send_cmd(data->bar, word1);
 	wait_for_completion_killable(&data->write);
+
+	/*{
+		struct doombuff_data *buff = data->active_buff.surf_dst->private_data;
+		int j, pos = 0;
+		printk(KERN_DEBUG "HARDDOOM: printing surf_dst. npages = %lu width = %lu, height = %lu page[0]: %p\n", buff->npages, buff->width, buff->height, buff->cpu_pages[0]);
+		for(i = 0; i < data->buff_size.surf_dst_h; ++i) {
+			for(j = 0; j < data->buff_size.surf_dst_w; ++j) {
+				printk(KERN_CONT "%d", *(buff->cpu_pages[pos / 4096] + pos % 4096));
+				++pos;
+			}
+			printk(KERN_DEBUG "\n");
+		}
+	}*/
+
 	mutex_unlock(&data->io);
 	printk(KERN_DEBUG "HARDDOOM written full %ld commands\n", n);
 	return count;
@@ -270,7 +296,7 @@ static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		struct doomdev2_ioctl_create_buffer *args = (struct doomdev2_ioctl_create_buffer*) arg;
 		if(args->size < 1) return -EINVAL;
 		if(args->size > 1 << 22) return -EOVERFLOW;
-		return doombuff_create(dev, args->size, DOOMBUFF_ENABLED);
+		return doombuff_buffor_create(dev, args->size);
 	}
 	case DOOMDEV2_IOCTL_SETUP: {
 		struct doomdev2_ioctl_setup *args = (struct doomdev2_ioctl_setup *) arg;

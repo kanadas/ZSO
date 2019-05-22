@@ -24,7 +24,8 @@ static void err(const char *err)
 }
 
 int main() {
-	int buff[128 * 16] = {2};
+	char buff[128 * 16];
+	memset(buff, 2, 128 * 16);
 	doomdev = open("/dev/doom0", O_WRONLY);
 	if(doomdev < 0) err("No doom device");
 	struct doomdev2_ioctl_create_surface s_arg;
@@ -81,7 +82,7 @@ int main() {
 	if(write(doomdev, &cmd1, sizeof(cmd1)) < (ssize_t) sizeof(cmd1)) err("7. write : WRONG");
 	else printf("7. write : OK\n");
 
-	if(lseek(s1_fd, 32 * 128, SEEK_SET)) err("8. llseek : WRONG");
+	if(lseek(s1_fd, 64 * 128, SEEK_SET)) err("8. llseek : WRONG");
 	else printf("8. llseek : OK\n");
 
 	if(write(s1_fd, buff, 16 * 128) != 16 * 128) err("9. write buff : WRONG ");
@@ -93,11 +94,16 @@ int main() {
 	if(ioctl(doomdev, DOOMDEV2_IOCTL_SETUP, &setup) < 0) err("10. ioctl setup : WRONG");
 	else printf("10. ioctl setup : OK\n");
 
+	struct doomdev2_cmd commands[3];
+	//commands[1].fill_rect = cmd1;
+
 	cmd1.fill_color = 3;
-	cmd1.width = 127;
-	cmd1.height = 127;
+	cmd1.width = 128;
+	cmd1.height = 128;
 	cmd1.pos_x = 0;
 	cmd1.pos_y = 0;
+
+	//commands[0].fill_rect = cmd1;
 
 	struct doomdev2_cmd_copy_rect cmd2;
 	cmd2.type = DOOMDEV2_CMD_TYPE_COPY_RECT;
@@ -108,7 +114,6 @@ int main() {
 	cmd2.pos_dst_x = 64 - 16;
 	cmd2.pos_dst_y = 64 - 16;
 
-	struct doomdev2_cmd commands[3];
 	commands[0].fill_rect = cmd1;
 	commands[1].copy_rect = cmd2;
 
@@ -116,7 +121,16 @@ int main() {
 		err("11. write: WRONG ");
 	else printf("11. write: OK\n");
 
-	int read_b[64];
+	/*if(write(doomdev, commands, sizeof(struct doomdev2_cmd)) != sizeof(struct doomdev2_cmd))
+		err("aa. write: WRONG ");
+	else printf("aa. write: OK\n");
+
+	if(write(doomdev, &commands[1], sizeof(struct doomdev2_cmd)) != sizeof(struct doomdev2_cmd))
+		err("bb. write: WRONG ");
+	else printf("bb. write: OK\n");*/
+
+
+	char read_b[64];
 	if(pread(s2_fd, read_b, 64, 128 * 64 - 32) != 64) err("12. pread: WRONG ");
 	else printf("12. pread: OK\n");
 
@@ -131,7 +145,7 @@ int main() {
 	cmd3.fill_color = 5;
 	cmd3.pos_a_x = 32;
 	cmd3.pos_a_y = 48;
-	cmd3.pos_b_x = 128;
+	cmd3.pos_b_x = 129;
 	cmd3.pos_b_y = 128;
 	commands[2].draw_line = cmd3;
 
@@ -155,6 +169,12 @@ int main() {
 		goto close_exit;
 	} else printf("15. pread: GOOD OUTPUT\n");
 
+	setup.surf_dst_fd = -1;
+	setup.surf_src_fd = -1;
+	setup.flat_fd = -1;
+
+	if(ioctl(doomdev, DOOMDEV2_IOCTL_SETUP, &setup) < 0) err("16. ioctl setup : WRONG");
+	else printf("16. ioctl setup : OK\n");
 
 close_exit:
 	close(s1_fd);

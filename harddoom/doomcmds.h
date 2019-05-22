@@ -13,6 +13,16 @@ struct doombuff_sizes {
 	size_t translation;
 };
 
+struct doombuff_files {
+	struct file *surf_dst;
+	struct file *surf_src;
+	struct file *texture;
+	struct file *flat;
+	struct file *colormap;
+	struct file *translation;
+	struct file *tranmap;
+};
+
 #define DOOMBUFF_CLEAR_SIZES (struct doombuff_sizes) {\
 	.surf_dst_w = 0,\
 	.surf_dst_h = 0,\
@@ -23,6 +33,15 @@ struct doombuff_sizes {
 	.colormap = 0,\
 	.translation = 0}
 
+#define DOOMBUFF_NO_FILES (struct doombuff_files) {\
+	.surf_dst = NULL,\
+	.surf_src  = NULL,\
+	.texture = NULL,\
+	.flat = NULL,\
+	.colormap = NULL,\
+	.translation = NULL,\
+	.tranmap = NULL}
+
 #define CMD_FLAG_INTERLOCK 1 << 4
 #define CMD_FLAG_PING_ASYNC 1 << 5
 #define CMD_FLAG_PING_SYNC 1 << 6
@@ -30,8 +49,8 @@ struct doombuff_sizes {
 
 void doom_send_cmd(void __iomem* bar, const uint32_t *words);
 int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
-	struct doomdev2_ioctl_setup active_buff, struct doombuff_sizes buff_size);
+	struct doombuff_files active_buff, struct doombuff_sizes buff_size);
 long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t flags,
-	struct doomdev2_ioctl_setup *active_buff, struct doombuff_sizes *buff_size);
+	struct doombuff_files *active_buff, struct doombuff_sizes *buff_size);
 
 #endif //DOOMCMDS
