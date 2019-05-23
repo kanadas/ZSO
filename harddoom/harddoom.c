@@ -31,6 +31,7 @@ struct devdata {
 	struct doombuff_sizes buff_size;
 	struct completion write;
 	struct mutex io;
+	struct doombuff_data *cmd_buff;
 };
 
 static dev_t doomdev_major;
@@ -73,16 +74,18 @@ static struct pci_driver doomdev_driver = {
 	.shutdown = doomdriv_shutdown,
 };
 
-void doomdriv_reset_device(void __iomem* bar)
+void doomdriv_reset_device(struct devdata *data)
 {
-	iowrite32(RESET_DEVICE, bar + RESET);
-	//initialize cmd_pt, size, idx to use order buffer
-	iowrite32(INTR_CLEAR, bar + INTR);
+	iowrite32(RESET_DEVICE, data->bar + RESET);
+	iowrite32(data->cmd_buff->dma_pagetable >> 8, data->bar + CMD_PT);
+	iowrite32(CMD_BUFF_SIZE, data->bar + CMD_SIZE);
+	iowrite32(0, data->bar + CMD_READ_IDX);
+	iowrite32(0, data->bar + CMD_WRITE_IDX);
+	iowrite32(INTR_CLEAR, data->bar + INTR);
 	//enabling all interrupts except fence and pongs
-	iowrite32(INTR_CLEAR & ~(INTR_FENCE | INTR_PONG_ASYNC), bar + INTR_ENABLE);
-	iowrite32(0, bar + FENCE_COUNTER);
-	iowrite32(START_DEVICE & ~ENABLE_FETCH, bar + ENABLE); //Disable order buffer
-
+	iowrite32(INTR_CLEAR & ~(INTR_FENCE | INTR_PONG_ASYNC), data->bar + INTR_ENABLE);
+	iowrite32(0, data->bar + FENCE_COUNTER);
+	iowrite32(START_DEVICE, data->bar + ENABLE);
 }
 
 DECLARE_BITMAP(doomdriv_minor_numbers, 256);
@@ -120,6 +123,13 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	if((err = request_irq(dev->irq, doomdev_irq_handler, IRQF_SHARED, "harddoom", dev)))
 		goto err_irq;
 
+	data->cmd_buff = doombuff_pagetable_create(&dev->dev,
+			0, 0, CMD_BUFF_SIZE * 32, DOOMBUFF_ENABLED);
+	if(IS_ERR(data->cmd_buff)) {
+		err = PTR_ERR(data->cmd_buff);
+		goto err_cmdbuff;
+	}
+
 	data->doom_device = &dev->dev;
 	set_bit(minor_off, doomdriv_minor_numbers);
 	init_completion(&data->write);
@@ -131,10 +141,12 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	iowrite32(0, data->bar + FE_CODE_ADDR);
 	for(i = 0; i < code_len; ++i)
 		iowrite32(doomcode2[i], data->bar + FE_CODE_WINDOW);
-	doomdriv_reset_device(data->bar);
+	doomdriv_reset_device(data);
 	printk(KERN_DEBUG "Yo HARDDOOM device is now running!\n");
 	return 0;
 
+err_cmdbuff:
+	free_irq(dev->irq, dev);
 err_irq:
 	pci_clear_master(dev);
 	pci_iounmap(dev, data->bar);
@@ -157,7 +169,6 @@ static void doomdriv_remove(struct pci_dev *dev)
 	printk(KERN_DEBUG "Removing yo HARDDOOM device :(\n");
 	clear_bit(data->major - doomdev_major, doomdriv_minor_numbers);
 	mutex_destroy(&data->io);
-	//completion destroy??
 	free_irq(dev->irq, dev);
 	pci_clear_master(dev);
 	pci_iounmap(dev, data->bar);
@@ -170,19 +181,30 @@ static void doomdriv_remove(struct pci_dev *dev)
 
 static int doomdriv_suspend(struct pci_dev *dev, pm_message_t state)
 {
-	//TODO
+	struct devdata *data = pci_get_drvdata(dev);
+	//TODO for now I don't have to wait 4 anyting
+	iowrite32(0, data->bar + ENABLE);
+	iowrite32(RESET_DEVICE, data->bar + RESET);
+	iowrite32(0, data->bar + INTR_ENABLE);
 	return 0;
 }
 
 static int doomdriv_resume(struct pci_dev *dev)
 {
-	//TODO
+	struct devdata* data = pci_get_drvdata(dev);
+	int code_len = ARRAY_SIZE(doomcode2);
+	int i;
+	iowrite32(0, data->bar + FE_CODE_ADDR);
+	for(i = 0; i < code_len; ++i)
+		iowrite32(doomcode2[i], data->bar + FE_CODE_WINDOW);
+	doomdriv_reset_device(data->bar);
 	return 0;
 }
 
 static void doomdriv_shutdown(struct pci_dev *dev)
 {
-	//TODO
+	struct devdata* data = pci_get_drvdata(dev);
+	iowrite32(0, data->bar + ENABLE);
 }
 
 static int doomfile_open(struct inode *ino, struct file *filep)
@@ -217,22 +239,22 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 		return err;
 	}
 	while(i < n) {
-		//printk(KERN_DEBUG "HARDDOOM writing %d command\n", i);
 		while((err = doom_write_cmd(word2, cmds[i], 0,
-				data->active_buff, data->buff_size)) &&
-				(i + 1) % QUEUE_SIZE && i + 1 < n) {
-			doom_send_cmd(data->bar, word1);
+				data->active_buff, data->buff_size)) == 0 &&
+				(i + 1) % CMD_BUFF_SIZE && i + 1 < n) {
+			//printk(KERN_DEBUG "HARDDOOM writing %d command\n", i);
+			doom_send_cmd(data->bar, data->cmd_buff, word1);
 			memcpy(word1, word2, 32);
 			++i;
 		}
 		if(err == 0) {
-			doom_send_cmd(data->bar, word1);
+			doom_send_cmd(data->bar, data->cmd_buff, word1);
 			memcpy(word1, word2, 32);
 			++i;
 		}
 		word1[0] |= CMD_FLAG_PING_SYNC;
 		reinit_completion(&data->write);
-		doom_send_cmd(data->bar, word1);
+		doom_send_cmd(data->bar, data->cmd_buff, word1);
 		wait_for_completion_killable(&data->write);
 		if(err || i == n || (err = doom_write_cmd(word1, cmds[i], 0,
 				data->active_buff, data->buff_size))) {
@@ -259,7 +281,7 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 	//printk(KERN_DEBUG "HARDDOOM write: INTR_ENABLE = %x\n",ioread32(data->bar+INTR_ENABLE));
 	word1[0] |= CMD_FLAG_PING_SYNC;
 	reinit_completion(&data->write);
-	doom_send_cmd(data->bar, word1);
+	doom_send_cmd(data->bar, data->cmd_buff, word1);
 	wait_for_completion_killable(&data->write);
 
 	/*{
@@ -302,7 +324,7 @@ static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 		struct doomdev2_ioctl_setup *args = (struct doomdev2_ioctl_setup *) arg;
 		long err;
 		if((err = mutex_lock_killable(&data->io))) return err;
-		err = doom_setup_cmd(data->bar, *args, 0, &data->active_buff, &data->buff_size);
+		err = doom_setup_cmd(data->bar, data->cmd_buff, *args, 0, &data->active_buff, &data->buff_size);
 		mutex_unlock(&data->io);
 		return err;
 	}

@@ -3,6 +3,7 @@
 
 #include <linux/kernel.h>
 #include "doomdev2.h"
+#include "doombuff.h"
 
 struct doombuff_sizes {
 	size_t surf_dst_w, surf_dst_h;
@@ -47,10 +48,10 @@ struct doombuff_files {
 #define CMD_FLAG_PING_SYNC 1 << 6
 #define CMD_FLAG_FENCE 1 << 7
 
-void doom_send_cmd(void __iomem* bar, const uint32_t *words);
+void doom_send_cmd(void __iomem *bar, struct doombuff_data *cmd_buf, const uint32_t *words);
 int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 	struct doombuff_files active_buff, struct doombuff_sizes buff_size);
-long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t flags,
+long doom_setup_cmd(void __iomem* bar, struct doombuff_data *cmd_buff, struct doomdev2_ioctl_setup arg, uint32_t flags,
 	struct doombuff_files *active_buff, struct doombuff_sizes *buff_size);
 
 #endif //DOOMCMDS

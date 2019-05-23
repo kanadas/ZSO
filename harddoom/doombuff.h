@@ -16,7 +16,13 @@ struct doombuff_data {
 
 extern struct file_operations doombuff_fops;
 
+#define DOOMBUFF_ENABLED 1
+#define DOOMBUFF_WRITABLE 2
+
 int doombuff_surface_create(struct device *dev, size_t width, size_t height);
 int doombuff_buffor_create(struct device *dev, uint32_t size);
+struct doombuff_data *doombuff_pagetable_create(
+		struct device *dev, size_t width, size_t height, uint32_t size, uint8_t flags);
+void doombuff_pagetable_fee(struct doombuff_data *data);
 
 #endif //DOOMBUFF

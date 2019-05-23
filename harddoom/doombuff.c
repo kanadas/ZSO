@@ -7,7 +7,7 @@
 #include <linux/anon_inodes.h>
 #include <linux/dma-mapping.h>
 
-#define DOOMBUFF_PAGE_SIZE 4096
+#include "doomdefs.h"
 
 static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, loff_t *filepos);
 static ssize_t doombuff_write(struct file *, const char __user *, size_t, loff_t *);
@@ -83,9 +83,8 @@ static loff_t doombuff_llseek(struct file *file, loff_t off, int whence)
 	return -EINVAL;
 }
 
-static int doombuff_release(struct inode *ino, struct file *filep)
+void doombuff_pagetable_fee(struct doombuff_data *data)
 {
-	struct doombuff_data *data = (struct doombuff_data*)filep->private_data;
 	int i;
 	printk(KERN_DEBUG "HARDDOOM releasing buffer file\n");
 	for(i = 0; i < data->npages; ++i) {
@@ -94,27 +93,33 @@ static int doombuff_release(struct inode *ino, struct file *filep)
 			(data->cpu_pagetable[i] >> 4) << 12);
 	}
 	kfree(data->cpu_pages);
-	dma_free_coherent(data->dev, max(sizeof(uint32_t) * data->npages, 256UL), data->cpu_pagetable, data->dma_pagetable);
+	dma_free_coherent(data->dev, max(sizeof(uint32_t)*data->npages, 256UL),
+		data->cpu_pagetable, data->dma_pagetable);
 	kfree(data);
+}
+
+static int doombuff_release(struct inode *ino, struct file *filep)
+{
+	struct doombuff_data *data = (struct doombuff_data*)filep->private_data;
+	doombuff_pagetable_fee(data);
 	return 0;
 }
 
-#define DOOMBUFF_ENABLED 1
-#define DOOMBUFF_WRITABLE 2
+//in header file
+//#define DOOMBUFF_ENABLED 1
+//#define DOOMBUFF_WRITABLE 2
 
-int doombuff_create(struct device *dev, size_t width, size_t height, uint32_t size, uint8_t flags)
+struct doombuff_data *doombuff_pagetable_create(
+		struct device *dev, size_t width, size_t height, uint32_t size, uint8_t flags)
 {
 	int err = -ENOMEM;
-	int fd;
-	struct file *fp;
 	int npages = DIV_ROUND_UP(size, DOOMBUFF_PAGE_SIZE);
 	int page = 0;
 	struct doombuff_data *data;
 	dma_addr_t dpage;
-	printk(KERN_DEBUG "HARDDOOM creating buffer file device: %p\n", dev);
-	if (npages > 1024) return -EINVAL;
+	if (npages > 1024) return ERR_PTR(-EINVAL);
 	data = kmalloc(sizeof(struct doombuff_data), GFP_KERNEL);
-	if(data == NULL) return -ENOMEM;
+	if(data == NULL) return ERR_PTR(-ENOMEM);
 	data->npages = npages;
 	data->size = size;
 	data->width = width;
@@ -133,6 +138,34 @@ int doombuff_create(struct device *dev, size_t width, size_t height, uint32_t si
 		data->cpu_pagetable[page] = (flags & 0xf) | (lower_32_bits(dpage >> 12) << 4);
 		//printk(KERN_DEBUG "HARDDOOM buffer pagetable: page %d: %x dev_addr: %llx cpu_addr: %p\n", page, data->cpu_pagetable[page], dpage, data->cpu_pages[page]);
 	}
+
+	return data;
+err_page: {
+	int i;
+	for(i = 0; i < page; ++i) {
+		dma_free_coherent(dev, DOOMBUFF_PAGE_SIZE, data->cpu_pages[i],
+			(data->cpu_pagetable[i] >> 6) << 12);
+	}
+	kfree(data->cpu_pages);
+}
+err_cpu_pages:
+	dma_free_coherent(dev, max(sizeof(uint32_t)*npages, 256UL),
+		data->cpu_pagetable, data->dma_pagetable);
+err_pagetable:
+	kfree(data);
+
+	return ERR_PTR(err);
+}
+
+int doombuff_create(struct device *dev, size_t width, size_t height, uint32_t size, uint8_t flags)
+{
+	int fd;
+	struct file *fp;
+	int err;
+	struct doombuff_data *data;
+	printk(KERN_DEBUG "HARDDOOM creating buffer file device: %p\n", dev);
+	if(IS_ERR(data = doombuff_pagetable_create(dev, width, height, size, flags)))
+		return PTR_ERR(data);
 	if((fd = get_unused_fd_flags(O_RDWR)) < 0) {
 		err = fd;
 		goto err_page;
@@ -149,19 +182,8 @@ int doombuff_create(struct device *dev, size_t width, size_t height, uint32_t si
 
 err_getfile:
 	put_unused_fd(fd);
-err_page: {
-	int i;
-	for(i = 0; i < page; ++i) {
-		dma_free_coherent(dev, DOOMBUFF_PAGE_SIZE, data->cpu_pages[i],
-			(data->cpu_pagetable[i] >> 6) << 12);
-	}
-	kfree(data->cpu_pages);
-}
-err_cpu_pages:
-	dma_free_coherent(dev, max(sizeof(uint32_t)*npages, 256UL), data->cpu_pagetable, data->dma_pagetable);
-err_pagetable:
-	kfree(data);
-
+err_page:
+	doombuff_pagetable_fee(data);
 	return err;
 }
 

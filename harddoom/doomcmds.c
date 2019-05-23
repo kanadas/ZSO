@@ -50,17 +50,22 @@
 //word 7
 #define cmd_texture(limit, height) ((limit) | ((height) << 16))
 
-void doom_send_cmd(void __iomem* bar, const uint32_t *words)
+void doom_send_cmd(void __iomem *bar, struct doombuff_data *cmd_buff, const uint32_t *words)
 {
-	int i;
+	int pos = ioread32(bar + CMD_WRITE_IDX);
+	int pg = (pos * 32) / DOOMBUFF_PAGE_SIZE;
+	int offpg = (pos * 32) % DOOMBUFF_PAGE_SIZE;
 	//printk(KERN_DEBUG "HARDDOOM sending command\n");
 	//printk(KERN_DEBUG "HARDDOOM words %x %x %x %x %x %x %x %x\n", words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]);
-	for(i = 0; i < 8; ++i) iowrite32(words[i], bar + CMD_SEND + i * 4);
+
+	memcpy(cmd_buff->cpu_pages[pg] + offpg, words, 32);
+	iowrite32((pos + 1) % CMD_BUFF_SIZE, bar + CMD_WRITE_IDX);
 }
 
 int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 		struct doombuff_files active_buff, struct doombuff_sizes buff_size)
 {
+	//printk(KERN_DEBUG "HARDDOOM writing command");
 	if(active_buff.surf_dst == NULL) return -EINVAL;
 	switch (cmd.type) {
 	case DOOMDEV2_CMD_TYPE_COPY_RECT:
@@ -216,7 +221,7 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 
 #define setup_flags(flags, dst_width, src_width) ((flags) | ((((dst_width) >> 6) << 16) | (((src_width) >> 6) << 24)))
 
-long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t flags,
+long doom_setup_cmd(void __iomem* bar, struct doombuff_data *cmd_buff, struct doomdev2_ioctl_setup arg, uint32_t flags,
 	struct doombuff_files *active_buff, struct doombuff_sizes *buff_size)
 {
 	uint32_t words[8] = {0};
@@ -320,7 +325,7 @@ long doom_setup_cmd(void __iomem* bar, struct doomdev2_ioctl_setup arg, uint32_t
 	if(active_buff->tranmap != NULL) fput(active_buff->tranmap);
 
 	words[0] = setup_flags(SETUP | flags, new_sizes.surf_dst_w, new_sizes.surf_src_w);
-	doom_send_cmd(bar, words);
+	doom_send_cmd(bar, cmd_buff, words);
 	*buff_size = new_sizes;
 	*active_buff = nbuff;
 
