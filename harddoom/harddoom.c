@@ -35,6 +35,13 @@ struct devdata {
 	struct list_head fput_q;
 	struct completion empty_queue;
 	struct mutex io;
+	spinlock_t fput_queue;
+};
+
+struct fput_queue_node {
+	struct doombuff_files f;
+	struct list_head l;
+	uint64_t fence;
 };
 
 struct dev_file_data {
@@ -91,7 +98,7 @@ void doomdriv_reset_device(struct devdata *data)
 	iowrite32(0, data->bar + CMD_READ_IDX);
 	iowrite32(0, data->bar + CMD_WRITE_IDX);
 	iowrite32(INTR_CLEAR, data->bar + INTR);
-	iowrite32(INTR_CLEAR & ~INTR_PONG_ASYNC, data->bar + INTR_ENABLE);
+	iowrite32(INTR_CLEAR & ~(INTR_PONG_ASYNC | INTR_PONG_SYNC), data->bar + INTR_ENABLE);
 	iowrite32(0, data->bar + FENCE_COUNTER);
 	iowrite32(0, data->bar + FENCE_WAIT);
 	iowrite32(START_DEVICE, data->bar + ENABLE);
@@ -263,10 +270,11 @@ static int doomfile_release(struct inode *ino, struct file *filep)
 	if(fdata->active_buff.colormap != NULL) fput(fdata->active_buff.colormap);
 	if(fdata->active_buff.tranmap != NULL) fput(fdata->active_buff.tranmap);
 	//send empty setup, to clear file descriptors
+	//TODO
 	fdata->active_buff = DOOMBUFF_NO_FILES;
 	writep = (uint32_t *)(data->cmd_buff->cpu_pages[(pos * 32) /
 		DOOMBUFF_PAGE_SIZE] + (pos * 32) % DOOMBUFF_PAGE_SIZE);
-	doom_setup_cmd(writep, &data->fput_q, &fdata->active_buff,
+	doom_setup_cmd(writep, &fdata->active_buff,
 		&data->active_buff, 0);
 	iowrite32((pos + 1) % CMD_BUFF_SIZE, data->bar + CMD_WRITE_IDX);
 	kfree(filep->private_data);
@@ -324,8 +332,22 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 			if(data->cmds_to_ping == 0) flags |= CMD_FLAG_PING_ASYNC;
 			if(i + 1 == n) flags |= CMD_FLAG_FENCE;
 			if(i == -1) {
-				doom_setup_cmd(writep, &data->fput_q, &fdata->active_buff,
-					&data->active_buff, flags);
+				unsigned long sflags;
+				struct fput_queue_node *qnode =
+					kmalloc(sizeof(struct fput_queue_node), GFP_KERNEL);
+				spin_lock_irqsave(&data->fput_queue, sflags);
+				++data->next_fence;
+				qnode->fence = data->next_fence;
+				qnode->f = data->active_buff;
+				list_add_tail(&qnode->l, &data->fput_q);
+				spin_unlock_irqrestore(&data->fput_queue, sflags);
+				if(!cyc_between(lower_32_bits(atomic64_read(
+						&data->fence_q.acc_fence)),
+						ioread32(data->bar + FENCE_COUNTER),
+						lower_32_bits(qnode->fence)))
+					iowrite32(lower_32_bits(qnode->fence), data->bar + FENCE_WAIT);
+				doom_setup_cmd(writep, &fdata->active_buff,
+					&data->active_buff, flags | CMD_FLAG_FENCE);
 				data->active_buff = fdata->active_buff;
 				iowrite32((pos + 1) % CMD_BUFF_SIZE, data->bar + CMD_WRITE_IDX);
 				continue;
@@ -487,10 +509,15 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 		uint64_t af, nf;
 		struct list_head *acc, *pom;
 		struct fence_queue_node *ac_node;
-		spin_lock_irqsave(&data->fence_q.list_lock, flags);
+		struct fput_queue_node *qnode;
+		printk(KERN_DEBUG "HARDDOOM FENCE\n");
+		iowrite32(INTR_PONG_SYNC, data->bar + INTR);
+		//printk(KERN_DEBUG "HARDDOOM puting buffer file\n");
+		//printk(KERN_DEBUG "HARDDOOM putting buffer files: %p %llu\n", qnode->f.surf_dst, qnode->f.surf_dst != NULL ? atomic64_read(&qnode->f.surf_dst->f_count) : 0);
 		nf = atomic64_read(&data->fence_q.acc_fence);
-		printk(KERN_DEBUG "HARDDOOM FENCE %llu\n", nf);
 		do {
+			//Free waiting for reading
+			spin_lock_irqsave(&data->fence_q.list_lock, flags);
 			af = ((nf >> 32) << 32) + ioread32(data->bar + FENCE_COUNTER);
 			if(af <= nf) af += 1llu << 32;
 			nf = af;
@@ -502,32 +529,32 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 					complete(&ac_node->event);
 				} else nf = min(nf, ac_node->fence);
 			}
+			spin_unlock_irqrestore(&data->fence_q.list_lock, flags);
+			//Free not used nodes
+			spin_lock_irqsave(&data->fput_queue, flags);
+			while(!list_empty(&data->fput_q)) {
+				qnode = list_first_entry(&data->fput_q, struct fput_queue_node, l);
+				if(qnode->fence > af) break;
+				list_del(&qnode->l);
+				if(qnode->f.surf_dst != NULL) fput(qnode->f.surf_dst);
+				if(qnode->f.surf_src != NULL) fput(qnode->f.surf_src);
+				if(qnode->f.texture != NULL) fput(qnode->f.texture);
+				if(qnode->f.flat != NULL) fput(qnode->f.flat);
+				if(qnode->f.translation != NULL) fput(qnode->f.translation);
+				if(qnode->f.colormap != NULL) fput(qnode->f.colormap);
+				if(qnode->f.tranmap != NULL) fput(qnode->f.tranmap);
+				kfree(qnode);
+			}
+			spin_unlock_irqrestore(&data->fput_queue, flags);
 			iowrite32(lower_32_bits(nf), data->bar + FENCE_WAIT);
 			iowrite32(INTR_FENCE, data->bar + INTR);
-
 			//printk(KERN_DEBUG "HARDDOOM fence: af = %llu, nf = %llu, counter = %u\n", af, nf, ioread32(data->bar + FENCE_COUNTER));
 		} while (!cyc_between(lower_32_bits(af), lower_32_bits(nf),
 					ioread32(data->bar + FENCE_COUNTER)));
 		atomic64_set(&data->fence_q.acc_fence,af);
-		spin_unlock_irqrestore(&data->fence_q.list_lock, flags);
 		printk(KERN_DEBUG "HARDDOOM FENCE finished af = %llu, nf = %llu counter = %u \n", af, nf, ioread32(data->bar + FENCE_COUNTER));
 	} else if(intrs & INTR_PONG_SYNC) {
-		struct fput_queue_node *qnode;
-		iowrite32(INTR_PONG_SYNC, data->bar + INTR);
-		qnode = list_first_entry(&data->fput_q, struct fput_queue_node, l);
-
-		printk(KERN_DEBUG "HARDDOOM PONG SYNC: puting buffer file\n");
-		//printk(KERN_DEBUG "HARDDOOM PONG SYNC: %p %llu\n", qnode->f.surf_dst, qnode->f.surf_dst != NULL ? atomic64_read(&qnode->f.surf_dst->f_count) : 0);
-
-		list_del(&qnode->l);
-		if(qnode->f.surf_dst != NULL) fput(qnode->f.surf_dst);
-		if(qnode->f.surf_src != NULL) fput(qnode->f.surf_src);
-		if(qnode->f.texture != NULL) fput(qnode->f.texture);
-		if(qnode->f.flat != NULL) fput(qnode->f.flat);
-		if(qnode->f.translation != NULL) fput(qnode->f.translation);
-		if(qnode->f.colormap != NULL) fput(qnode->f.colormap);
-		if(qnode->f.tranmap != NULL) fput(qnode->f.tranmap);
-		kfree(qnode);
+		printk(KERN_ERR "HARDDOOM INTR_PONG_SYNC sould be disabled\n");
 	} else if(intrs & INTR_PONG_ASYNC) {
 		printk(KERN_DEBUG "HARDDOOM PING - PONG PONG PONGING!!!");
 		iowrite32(INTR_PONG_ASYNC, data->bar + INTR);

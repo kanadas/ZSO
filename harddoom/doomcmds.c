@@ -223,15 +223,12 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 
 #define setup_flags(flags, dst_width, src_width) ((flags) | ((((dst_width) >> 6) << 16) | (((src_width) >> 6) << 24)))
 
-void doom_setup_cmd(uint32_t *words, struct list_head *fput_q, struct doombuff_files *nbuff, struct doombuff_files *active_buff, uint32_t flags)
+void doom_setup_cmd(uint32_t *words, struct doombuff_files *nbuff, struct doombuff_files *active_buff, uint32_t flags)
 {
 	struct doombuff_data *data;
-	struct fput_queue_node *qnode;
 	size_t dst_w = 0, src_w = 0;
 	memset(words, 0, 32);
-
 	//printk(KERN_DEBUG "HARDDOOM SETUP prev: %p, nxt: %p\n", active_buff->surf_dst, nbuff->surf_dst);
-
 	if(nbuff->surf_dst != NULL) {
 		flags |= SETUP_FLAG_SURF_DST;
 		data = nbuff->surf_dst->private_data;
@@ -276,12 +273,7 @@ void doom_setup_cmd(uint32_t *words, struct list_head *fput_q, struct doombuff_f
 		words[7] = data->dma_pagetable >> 8;
 		get_file(nbuff->tranmap);
 	}
-
-	qnode = kmalloc(sizeof(struct fput_queue_node), GFP_KERNEL);
-	qnode->f = *active_buff;
-	list_add_tail(&qnode->l, fput_q);
-
-	words[0] = setup_flags(SETUP | flags | CMD_FLAG_PING_SYNC, dst_w, src_w);
+	words[0] = setup_flags(SETUP | flags, dst_w, src_w);
 	*active_buff = *nbuff;
 
 }

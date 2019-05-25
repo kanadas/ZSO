@@ -15,11 +15,6 @@ struct doombuff_files {
 	struct file *tranmap;
 };
 
-struct fput_queue_node {
-	struct doombuff_files f;
-	struct list_head l;
-};
-
 #define DOOMBUFF_NO_FILES (struct doombuff_files) {\
 	.surf_dst = NULL,\
 	.surf_src  = NULL,\
@@ -39,6 +34,6 @@ inline bool doombuff_files_eq(struct doombuff_files *a, struct doombuff_files *b
 void doom_send_cmd(void __iomem *bar, struct doombuff_data *cmd_buf, const uint32_t *words);
 int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 		struct doombuff_files active_buff);
-void doom_setup_cmd(uint32_t *words, struct list_head *fput_q, struct doombuff_files *nbuff, struct doombuff_files *active_buff, uint32_t flags);
+void doom_setup_cmd(uint32_t *words, struct doombuff_files *nbuff, struct doombuff_files *active_buff, uint32_t flags);
 
 #endif //DOOMCMDS
