@@ -82,6 +82,9 @@ int main() {
 	if(write(doomdev, &cmd1, sizeof(cmd1)) < (ssize_t) sizeof(cmd1)) err("7. write : WRONG");
 	else printf("7. write : OK\n");
 
+	char tmp;
+	if(read(s1_fd, &tmp, 1) != 1) err("7.5: read");
+
 	if(lseek(s1_fd, 64 * 128, SEEK_SET)) err("8. llseek : WRONG");
 	else printf("8. llseek : OK\n");
 

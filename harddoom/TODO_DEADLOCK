@@ -1,0 +1,20 @@
+DEADLOCK, 2 looped processes, BUFF_SIZE = 64, logs:
+
+[  +0.422725] HARDDOOM written full 230 commands
+[  +0.000008] Ioctling yo HARDDOM device!
+[  +0.000004] HARDDOOM reading from buffer
+
+[May25 19:19] HARDDOOM PING - PONG PONG PONGING!!!
+[May25 19:25] HARDDOOM read 128 bytes from buffer file
+[  +0.000365] All loosers closed HARDDOOM device file :(
+[  +0.000058] HARDDOOM releasing buffer file 0000000006838214
+[  +0.000208] HARDDOOM PONG SYNC: puting buffer file
+[  +0.010505] HARDDOOM releasing buffer file 00000000ecfbf229
+
+[ +31.780989] HARDDOOM read 128 bytes from buffer file
+[  +0.000281] HARDDOOM releasing buffer file 0000000063f88cc3
+[  +0.000953] All loosers closed HARDDOOM device file :(
+[  +0.000101] HARDDOOM releasing buffer file 000000005b0bd933
+[  +0.000194] HARDDOOM PONG SYNC: puting buffer file
+
+

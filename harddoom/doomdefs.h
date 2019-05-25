@@ -1,3 +1,5 @@
+#ifndef DOOMDEFS
+#define DOOMDEFS
 
 //Register offsets
 #define CMD_FREE 0x70
@@ -43,5 +45,12 @@
 
 #define BUILDIN_QUEUE_SIZE 512
 #define CMD_BUFF_SIZE 1024
+//#define CMD_BUFF_SIZE 64	//To tests
+#define CMD_BUFF_PING_DIST (CMD_BUFF_SIZE >> 3)
 #define DOOMBUFF_PAGE_SIZE 4096
 
+//if c between a and b
+#define cyc_between(a, b, c) \
+	((a) <= (b) ? (a) <= (c) && (c) <= (b) : (a) <= (c) || (c) <= (b))
+
+#endif //DOOMDEFS

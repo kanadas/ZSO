@@ -22,17 +22,55 @@ struct file_operations doombuff_fops = {
 	.release = doombuff_release,
 };
 
+//if c between a and b
+/*#define cyc_between(a, b, c) \
+	((a) <= (b) ? (a) <= (c) && (c) < (b) : (a) <= (c) || (c) < (b))*/
+
 static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, loff_t *filepos)
 {
 	struct doombuff_data *data = (struct doombuff_data*)file->private_data;
 	int pg = *filepos / DOOMBUFF_PAGE_SIZE;
 	int offpg = *filepos % DOOMBUFF_PAGE_SIZE;
 	ssize_t to_read;
+	struct fence_queue_node node;
+	unsigned long flags;
 	if(*filepos > data->size) return 0;
+	printk(KERN_DEBUG "HARDDOOM reading from buffer\n");
+	spin_lock_irqsave(&data->rwq->list_lock, flags);
+	//printk(KERN_DEBUG "HARDDOOM reading fence_wait = %d, fence = %llu, acc_fence = %llu\n", ioread32(data->bar + FENCE_WAIT), data->fence, atomic64_read(&data->rwq->acc_fence));
+	if(data->fence > atomic64_read(&data->rwq->acc_fence)) {
+		if(list_empty(&data->rwq->queue)) {
+			//printk(KERN_DEBUG "HARDDOOM FENCE_COUNTER = %d\n",ioread32(data->bar + FENCE_COUNTER));
+			if(!cyc_between(lower_32_bits(atomic64_read(&data->rwq->acc_fence)),
+					ioread32(data->bar + FENCE_COUNTER),
+					lower_32_bits(data->fence))) {
+				iowrite32(lower_32_bits(data->fence), data->bar + FENCE_WAIT);
+				//printk(KERN_DEBUG "HARDDOOM read wait written\n");
+				if(cyc_between(lower_32_bits(atomic64_read(&data->rwq->acc_fence)),
+						ioread32(data->bar+FENCE_COUNTER),
+						lower_32_bits(data->fence))) {
+					spin_unlock_irqrestore(&data->rwq->list_lock, flags);
+					goto no_wait;
+				}
+			} else {
+				spin_unlock_irqrestore(&data->rwq->list_lock, flags);
+				goto no_wait;
+			}
+		}
+		//printk(KERN_DEBUG "HARDDOOM read waiting: %llu\n", data->fence);
+		//printk(KERN_DEBUG "HARDDOOM queue: %p\n", data->rwq);
+		node.fence = data->fence;
+		init_completion(&node.event);
+		list_add(&node.list, &data->rwq->queue);
+		spin_unlock_irqrestore(&data->rwq->list_lock, flags);
+		//if(data->fence > atomic64_read(&data->rwq->acc_fence)) {
+		wait_for_completion_killable(&node.event);
+		//}
+	} else spin_unlock_irqrestore(&data->rwq->list_lock, flags);
+no_wait:
 	if(*filepos + count > data->size) count = data->size - *filepos;
 	to_read = count;
 	down_read(&data->sem);
-	printk(KERN_DEBUG "HARDDOOM reading from buffer\n");
 	memcpy(buf, data->cpu_pages[pg++] + offpg, min(to_read, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg));
 	to_read -= min(to_read, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg);
 	for(; to_read > 0 && pg < data->npages; to_read -= DOOMBUFF_PAGE_SIZE)
@@ -58,7 +96,7 @@ static ssize_t doombuff_write(struct file *file, const char __user *buf, size_t 
 		memcpy(data->cpu_pages[pg++], buf + count - to_write, min(to_write, (ssize_t) DOOMBUFF_PAGE_SIZE));
 	*filepos += count - max(to_write, 0L);
 	up_write(&data->sem);
-	printk(KERN_DEBUG "HARDDOOM written %lu bytes from buffer file\n", count-max(to_write, 0L));
+	//printk(KERN_DEBUG "HARDDOOM written %lu bytes from buffer file\n", count-max(to_write, 0L));
 	return count - max(to_write, 0L);
 }
 
@@ -86,7 +124,6 @@ static loff_t doombuff_llseek(struct file *file, loff_t off, int whence)
 void doombuff_pagetable_fee(struct doombuff_data *data)
 {
 	int i;
-	printk(KERN_DEBUG "HARDDOOM releasing buffer file\n");
 	for(i = 0; i < data->npages; ++i) {
 		//printk(KERN_DEBUG "HARDDOOM release pagetable: device: %p page %d: %x dev_addr: %x cpu_addr: %p\n", data->dev, i, data->cpu_pagetable[i], (data->cpu_pagetable[i] >> 4) << 12, data->cpu_pages[i]);
 		dma_free_coherent(data->dev, DOOMBUFF_PAGE_SIZE, data->cpu_pages[i],
@@ -101,6 +138,7 @@ void doombuff_pagetable_fee(struct doombuff_data *data)
 static int doombuff_release(struct inode *ino, struct file *filep)
 {
 	struct doombuff_data *data = (struct doombuff_data*)filep->private_data;
+	printk(KERN_DEBUG "HARDDOOM releasing buffer file %p\n", filep);
 	doombuff_pagetable_fee(data);
 	return 0;
 }
@@ -116,6 +154,7 @@ struct doombuff_data *doombuff_pagetable_create(
 	int npages = DIV_ROUND_UP(size, DOOMBUFF_PAGE_SIZE);
 	int page = 0;
 	struct doombuff_data *data;
+	//printk(KERN_DEBUG "HARDDOOM creating pagetable\n");
 	dma_addr_t dpage;
 	if (npages > 1024) return ERR_PTR(-EINVAL);
 	data = kmalloc(sizeof(struct doombuff_data), GFP_KERNEL);
@@ -125,6 +164,8 @@ struct doombuff_data *doombuff_pagetable_create(
 	data->width = width;
 	data->height = height;
 	data->dev = dev;
+	data->fence = 0;
+	data->rwq = NULL;
 	init_rwsem(&data->sem);
 	data->cpu_pagetable = (uint32_t*) dma_alloc_coherent(dev,
 		max(sizeof(uint32_t)*npages, 256UL), &data->dma_pagetable, GFP_KERNEL);
@@ -139,6 +180,7 @@ struct doombuff_data *doombuff_pagetable_create(
 		//printk(KERN_DEBUG "HARDDOOM buffer pagetable: page %d: %x dev_addr: %llx cpu_addr: %p\n", page, data->cpu_pagetable[page], dpage, data->cpu_pages[page]);
 	}
 
+	//printk(KERN_DEBUG "HARDDOOM created pagetable\n");
 	return data;
 err_page: {
 	int i;
@@ -157,15 +199,17 @@ err_pagetable:
 	return ERR_PTR(err);
 }
 
-int doombuff_create(struct device *dev, size_t width, size_t height, uint32_t size, uint8_t flags)
+int doombuff_create(struct fence_queue *rwq, struct device *dev, void __iomem *bar, size_t width, size_t height, uint32_t size, uint8_t flags)
 {
 	int fd;
 	struct file *fp;
 	int err;
 	struct doombuff_data *data;
-	printk(KERN_DEBUG "HARDDOOM creating buffer file device: %p\n", dev);
+	printk(KERN_DEBUG "HARDDOOM creating buffer\n");
 	if(IS_ERR(data = doombuff_pagetable_create(dev, width, height, size, flags)))
 		return PTR_ERR(data);
+	data->rwq = rwq;
+	data->bar = bar;
 	if((fd = get_unused_fd_flags(O_RDWR)) < 0) {
 		err = fd;
 		goto err_page;
@@ -177,7 +221,7 @@ int doombuff_create(struct device *dev, size_t width, size_t height, uint32_t si
 	}
 	fp->f_mode |= (FMODE_LSEEK | FMODE_PREAD | FMODE_PWRITE);
 	fd_install(fd, fp);
-	printk(KERN_DEBUG "HARDDOOM created buffer : %d\n", fd);
+	//printk(KERN_DEBUG "HARDDOOM created buffer : %d, %p\n", fd, fp);
 	return fd;
 
 err_getfile:
@@ -187,14 +231,14 @@ err_page:
 	return err;
 }
 
-int doombuff_surface_create(struct device *dev, size_t width, size_t height)
+int doombuff_surface_create(struct fence_queue *rwq, struct device *dev, void __iomem *bar, size_t width, size_t height)
 {
-	return doombuff_create(dev, width, height, width * height, DOOMBUFF_ENABLED | DOOMBUFF_WRITABLE);
+	return doombuff_create(rwq, dev, bar, width, height, width * height, DOOMBUFF_ENABLED | DOOMBUFF_WRITABLE);
 }
 
 
-int doombuff_buffor_create(struct device *dev, uint32_t size)
+int doombuff_buffor_create(struct fence_queue *rwq, struct device *dev, void __iomem *bar, uint32_t size)
 {
-	return doombuff_create(dev, 0, 0, size, DOOMBUFF_ENABLED);
+	return doombuff_create(rwq, dev, bar, 0, 0, size, DOOMBUFF_ENABLED);
 }
 
