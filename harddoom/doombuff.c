@@ -35,7 +35,7 @@ static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, 
 	struct fence_queue_node node;
 	unsigned long flags;
 	if(*filepos > data->size) return 0;
-	printk(KERN_DEBUG "HARDDOOM reading from buffer\n");
+	//printk(KERN_DEBUG "HARDDOOM reading from buffer\n");
 	spin_lock_irqsave(&data->rwq->list_lock, flags);
 	if(data->fence > data->rwq->acc_fence) {
 		if(list_empty(&data->rwq->queue)) {
@@ -74,7 +74,7 @@ no_wait:
 		memcpy(buf + count - to_read, data->cpu_pages[pg++], min(to_read, (ssize_t) DOOMBUFF_PAGE_SIZE));
 	*filepos += count - max(to_read, 0L);
 	up_read(&data->sem);
-	printk(KERN_DEBUG "HARDDOOM read %lu bytes from buffer file\n", count - max(to_read, 0L));
+	//printk(KERN_DEBUG "HARDDOOM read %lu bytes from buffer file\n", count - max(to_read, 0L));
 	return count - max(to_read, 0L);
 }
 
@@ -86,7 +86,7 @@ static ssize_t doombuff_write(struct file *file, const char __user *buf, size_t 
 	ssize_t to_write = count;
 	if(*filepos + count > data->size) return -ENOSPC;
 	down_write(&data->sem);
-	printk(KERN_DEBUG "HARDDOOM writing to buffer\n");
+	//printk(KERN_DEBUG "HARDDOOM writing to buffer\n");
 	memcpy(data->cpu_pages[pg++] + offpg, buf, min(to_write, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg));
 	to_write -= min(to_write, (ssize_t) DOOMBUFF_PAGE_SIZE - offpg);
 	for(; to_write > 0 && pg < data->npages; to_write -= DOOMBUFF_PAGE_SIZE)
@@ -100,7 +100,7 @@ static ssize_t doombuff_write(struct file *file, const char __user *buf, size_t 
 static loff_t doombuff_llseek(struct file *file, loff_t off, int whence)
 {
 	struct doombuff_data *data = (struct doombuff_data*)file->private_data;
-	printk(KERN_DEBUG "HARDDOOM llseek buffer file\n");
+	//printk(KERN_DEBUG "HARDDOOM llseek buffer file\n");
 	switch(whence) {
 	case SEEK_SET:
 		if(off < 0 || off >= data->size) return -EOVERFLOW;
@@ -135,7 +135,7 @@ void doombuff_pagetable_fee(struct doombuff_data *data)
 static int doombuff_release(struct inode *ino, struct file *filep)
 {
 	struct doombuff_data *data = (struct doombuff_data*)filep->private_data;
-	printk(KERN_DEBUG "HARDDOOM releasing buffer file %p\n", filep);
+	//printk(KERN_DEBUG "HARDDOOM releasing buffer file %p\n", filep);
 	doombuff_pagetable_fee(data);
 	return 0;
 }
@@ -202,7 +202,7 @@ int doombuff_create(struct fence_queue *rwq, struct device *dev, void __iomem *b
 	struct file *fp;
 	int err;
 	struct doombuff_data *data;
-	printk(KERN_DEBUG "HARDDOOM creating buffer\n");
+	//printk(KERN_DEBUG "HARDDOOM creating buffer\n");
 	if(IS_ERR(data = doombuff_pagetable_create(dev, width, height, size, flags)))
 		return PTR_ERR(data);
 	data->rwq = rwq;
