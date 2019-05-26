@@ -1,0 +1,11 @@
+Sterownik powinien budować się przez komendę `make`, zakładając, że pliki nagłówkowe jądra znajdują się w domyślnym katalogu (jeśli nie, to wystarczy zmienić zmienną KDIR w Makefile).
+Sterownik korzysta z bloku wczytywania poleceń i implementuje w pełni asynchroniczną operację write.
+Źródła sterownika zostały rozbite na 3 pliki źródłowe:
+    - harddoom.c rejestruje sterownik pci i urządzenia znakowe /dev/doomX, oraz implementuje główną logikę sterownika (operacje write i ioctl).
+    - doombuff.c implementuje bufory sterownika (tworzenie nowego bufora i tabeli stron, read, write, llseek)
+    - doomcmds.c implementuje funkcje konwertujące komendy na format urządzenia.
+Ponadto są pliki nagłówkowe:
+    -doombuff.h i doomcmds.h eksportujące funkcje, struktury i makra odpowiednich plików źródłowych.
+    -doomdefs.h eksportuje stałe związane z użądzeniem w postaci makr (stałe te są też w pliku harddoom2.h, ale dość późno go zauważyłem i łatwiej było mi zostawić tak jak jest)
+    -doomcode.h doomdev2.h harddoom2.h pliki z treści zadania
+

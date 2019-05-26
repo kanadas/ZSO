@@ -270,7 +270,7 @@ void doom_setup_cmd(uint32_t *words, struct doombuff_files *nbuff, struct doombu
 	*active_buff = *nbuff;
 }
 
-inline bool doombuff_files_eq(struct doombuff_files *a, struct doombuff_files *b) {
+bool doombuff_files_eq(struct doombuff_files *a, struct doombuff_files *b) {
 	return  a->surf_dst    == b->surf_dst &&
 		a->surf_src    == b->surf_src &&
 		a->texture     == b->texture &&

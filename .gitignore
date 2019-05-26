@@ -10,3 +10,6 @@ harddoom/Module.symvers
 *.ko
 *.mod.c
 harddoom/modules.order
+harddoom/tomasz_kanas
+harddoom/tests/basic
+harddoom/tests/looped

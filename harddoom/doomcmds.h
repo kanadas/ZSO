@@ -29,9 +29,8 @@ struct doombuff_files {
 #define CMD_FLAG_PING_SYNC 1 << 6
 #define CMD_FLAG_FENCE 1 << 7
 
-inline bool doombuff_files_eq(struct doombuff_files *a, struct doombuff_files *b);
+bool doombuff_files_eq(struct doombuff_files *a, struct doombuff_files *b);
 
-void doom_send_cmd(void __iomem *bar, struct doombuff_data *cmd_buf, const uint32_t *words);
 int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 		struct doombuff_files active_buff);
 void doom_setup_cmd(uint32_t *words, struct doombuff_files *nbuff, struct doombuff_files *active_buff, uint32_t flags);
