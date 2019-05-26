@@ -23,11 +23,13 @@ static uint8_t check_all_eq(const char *buff, size_t size) {
 	return 1;
 }
 
-int main() {
+int main(int argc, char **argv) {
 	int doomdev;
 	int s1_fd, s2_fd;
 	char buff[128];
-	doomdev = open("/dev/doom0", O_WRONLY);
+	char name[15] = "/dev/doom0";
+	if(argc > 1) strcpy(name, argv[1]);
+	doomdev = open(name, O_WRONLY);
 	if(doomdev < 0) err("No doom device");
 	struct doomdev2_ioctl_create_surface s_arg;
 	s_arg.width = 2048;

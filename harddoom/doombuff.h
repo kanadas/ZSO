@@ -19,7 +19,7 @@ struct doombuff_data {
 };
 
 struct fence_queue {
-	atomic64_t acc_fence;
+	uint64_t acc_fence;
 	struct list_head queue;
 	spinlock_t list_lock;
 };

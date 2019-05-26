@@ -37,16 +37,15 @@ static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, 
 	if(*filepos > data->size) return 0;
 	printk(KERN_DEBUG "HARDDOOM reading from buffer\n");
 	spin_lock_irqsave(&data->rwq->list_lock, flags);
-	//printk(KERN_DEBUG "HARDDOOM reading fence_wait = %d, fence = %llu, acc_fence = %llu\n", ioread32(data->bar + FENCE_WAIT), data->fence, atomic64_read(&data->rwq->acc_fence));
-	if(data->fence > atomic64_read(&data->rwq->acc_fence)) {
+	if(data->fence > data->rwq->acc_fence) {
 		if(list_empty(&data->rwq->queue)) {
 			//printk(KERN_DEBUG "HARDDOOM FENCE_COUNTER = %d\n",ioread32(data->bar + FENCE_COUNTER));
-			if(!cyc_between(lower_32_bits(atomic64_read(&data->rwq->acc_fence)),
+			if(!cyc_between(lower_32_bits(data->rwq->acc_fence),
 					ioread32(data->bar + FENCE_COUNTER),
 					lower_32_bits(data->fence))) {
 				iowrite32(lower_32_bits(data->fence), data->bar + FENCE_WAIT);
 				//printk(KERN_DEBUG "HARDDOOM read wait written\n");
-				if(cyc_between(lower_32_bits(atomic64_read(&data->rwq->acc_fence)),
+				if(cyc_between(lower_32_bits(data->rwq->acc_fence),
 						ioread32(data->bar+FENCE_COUNTER),
 						lower_32_bits(data->fence))) {
 					spin_unlock_irqrestore(&data->rwq->list_lock, flags);
@@ -63,9 +62,7 @@ static ssize_t doombuff_read(struct file *file, char __user *buf, size_t count, 
 		init_completion(&node.event);
 		list_add(&node.list, &data->rwq->queue);
 		spin_unlock_irqrestore(&data->rwq->list_lock, flags);
-		//if(data->fence > atomic64_read(&data->rwq->acc_fence)) {
 		wait_for_completion_killable(&node.event);
-		//}
 	} else spin_unlock_irqrestore(&data->rwq->list_lock, flags);
 no_wait:
 	if(*filepos + count > data->size) count = data->size - *filepos;

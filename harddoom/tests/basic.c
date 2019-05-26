@@ -23,10 +23,12 @@ static void err(const char *err)
 	exit(1);
 }
 
-int main() {
+int main(int argc, char **argv) {
 	char buff[128 * 16];
+	char name[15] = "/dev/doom0";
+	if(argc > 1) strcpy(name, argv[1]);
 	memset(buff, 2, 128 * 16);
-	doomdev = open("/dev/doom0", O_WRONLY);
+	doomdev = open(name , O_WRONLY);
 	if(doomdev < 0) err("No doom device");
 	struct doomdev2_ioctl_create_surface s_arg;
 	s_arg.width = 1;
