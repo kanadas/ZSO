@@ -54,8 +54,6 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 		struct doombuff_files active_buff)
 {
 	struct doombuff_data *data, *data2, *data3;
-	//printk(KERN_DEBUG "HARDDOOM writing command");
-	//printk(KERN_DEBUG "HARDDOOM active_buff.surf_dst = %p\n", active_buff.surf_dst);
 	if(active_buff.surf_dst == NULL) return -EINVAL;
 	data = active_buff.surf_dst->private_data;
 	switch (cmd.type) {
@@ -70,7 +68,6 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 			cmd.copy_rect.pos_src_y + cmd.copy_rect.height > data2->height)
 			return -EOVERFLOW;
 
-		//printk(KERN_DEBUG "HARDDOOM copy rect %d %d %d %d %d %d\n", cmd.copy_rect.pos_src_x, cmd.copy_rect.pos_src_y, cmd.copy_rect.pos_dst_x, cmd.copy_rect.pos_dst_y, cmd.copy_rect.width, cmd.copy_rect.height);
 
 		words[0] = COPY_RECT | flags | CMD_FLAG_INTERLOCK;
 		words[1] = 0;
@@ -86,7 +83,6 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 			cmd.fill_rect.pos_y + cmd.fill_rect.height > data->height)
 			return -EOVERFLOW;
 
-		//printk(KERN_DEBUG "HARDDOOM fill frect %d %d %d %d %d\n", cmd.fill_rect.pos_x, cmd.fill_rect.pos_y, cmd.fill_rect.width, cmd.fill_rect.height, cmd.fill_rect.fill_color);
 		words[0] = FILL_RECT | flags;
 		words[1] = 0;
 		words[2] = cmd_pos(cmd.fill_rect.pos_x, cmd.fill_rect.pos_y, 0);
@@ -206,9 +202,7 @@ int doom_write_cmd(uint32_t *words, struct doomdev2_cmd cmd, uint32_t flags,
 		words[7] = 0;
 	}
 
-	//printk(KERN_DEBUG "HARDDOOM finished writing\n");
 
-	//printk(KERN_DEBUG "HARDDOOM words %x %x %x %x %x %x %x %x\n", words[0], words[1], words[2], words[3], words[4], words[5], words[6], words[7]);
 
 	return 0;
 }
@@ -228,7 +222,6 @@ void doom_setup_cmd(uint32_t *words, struct doombuff_files *nbuff, struct doombu
 	struct doombuff_data *data;
 	size_t dst_w = 0, src_w = 0;
 	memset(words, 0, 32);
-	//printk(KERN_DEBUG "HARDDOOM SETUP prev: %p, nxt: %p\n", active_buff->surf_dst, nbuff->surf_dst);
 	if(nbuff->surf_dst != NULL) {
 		flags |= SETUP_FLAG_SURF_DST;
 		data = nbuff->surf_dst->private_data;
@@ -275,7 +268,6 @@ void doom_setup_cmd(uint32_t *words, struct doombuff_files *nbuff, struct doombu
 	}
 	words[0] = setup_flags(SETUP | flags, dst_w, src_w);
 	*active_buff = *nbuff;
-
 }
 
 inline bool doombuff_files_eq(struct doombuff_files *a, struct doombuff_files *b) {

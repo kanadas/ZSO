@@ -113,7 +113,6 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	int minor_off = find_first_zero_bit(doomdriv_minor_numbers, 256);
 	int code_len = ARRAY_SIZE(doomcode2);
 	int i;
-	//printk(KERN_DEBUG "Probing yo HARDDOOM device!\n");
 	if(data == NULL) return -ENOMEM;
 	data->major = doomdev_major + minor_off;
 	cdev_init(&data->doom_cdev, &doomdev_fops);
@@ -164,7 +163,6 @@ static int doomdriv_probe(struct pci_dev *dev, const struct pci_device_id *id)
 	for(i = 0; i < code_len; ++i)
 		iowrite32(doomcode2[i], data->bar + FE_CODE_WINDOW);
 	doomdriv_reset_device(data);
-	//printk(KERN_DEBUG "Yo HARDDOOM device is now running!\n");
 	return 0;
 
 err_cmdbuff:
@@ -188,7 +186,6 @@ err_cdev:
 static void doomdriv_remove(struct pci_dev *dev)
 {
 	struct devdata *data = pci_get_drvdata(dev);
-	//printk(KERN_DEBUG "Removing yo HARDDOOM device :(\n");
 	clear_bit(data->major - doomdev_major, doomdriv_minor_numbers);
 	mutex_destroy(&data->io);
 	free_irq(dev->irq, dev);
@@ -250,7 +247,6 @@ static int doomfile_open(struct inode *ino, struct file *filep)
 	data->devdata = container_of(ino->i_cdev, struct devdata, doom_cdev);
 	spin_lock_init(&data->act_buf_lock);
 	filep->private_data = data;
-	//printk(KERN_DEBUG "Some madman opened HARDDOOM device file!\n");
 	return 0;
 }
 
@@ -262,7 +258,6 @@ static void doomdev_change_config(struct dev_file_data *fdata, uint32_t *writep,
 	++data->next_fence;
 	qnode->fence = data->next_fence;
 	qnode->f = data->active_buff;
-	//printk(KERN_DEBUG "HARDDOOM qnode to free, fence: %llu\n", qnode->fence);
 	list_add_tail(&qnode->l, &data->fput_q);
 	spin_unlock_irqrestore(&data->fput_queue, sflags);
 	if(!cyc_between(lower_32_bits(data->fence_q.acc_fence),
@@ -280,7 +275,6 @@ static int doomfile_release(struct inode *ino, struct file *filep)
 	uint32_t pos;
 	uint32_t *writep;
 	int err;
-	//printk(KERN_DEBUG "All loosers closed HARDDOOM device file :(\n");
 	//put active buffer files
 	if(fdata->active_buff.surf_dst != NULL) fput(fdata->active_buff.surf_dst);
 	if(fdata->active_buff.surf_src != NULL) fput(fdata->active_buff.surf_src);
@@ -312,18 +306,11 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 	uint32_t flags;
 	uint32_t pos;
 	uint32_t *writep;
-	//printk(KERN_DEBUG "Writing to yo HARDDOM device!\n");
 	if(count % sizeof(struct doomdev2_cmd)) return -EINVAL;
 	if(n == 0) return 0;
 	if((err = mutex_lock_killable(&data->io))) return err;
-	if(doombuff_files_eq(&data->active_buff, &fdata->active_buff))
-		i = 0;
-
-	//printk(KERN_DEBUG "HARDDOOM dupa %d %ld %d\n", i, n, i < n);
+	if(doombuff_files_eq(&data->active_buff, &fdata->active_buff)) i = 0;
 	while(i < n) {
-
-		//printk(KERN_DEBUG "HARDDOOM dupa1 %d\n", i);
-
 		if((ioread32(data->bar + CMD_WRITE_IDX) + 1) % CMD_BUFF_SIZE ==
 				ioread32(data->bar + CMD_READ_IDX)) {
 			iowrite32(INTR_PONG_ASYNC, data->bar + INTR);
@@ -332,11 +319,9 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 				reinit_completion(&data->empty_queue);
 				iowrite32(ioread32(data->bar + INTR_ENABLE) | INTR_PONG_ASYNC,
 					data->bar + INTR_ENABLE);
-				//printk(KERN_DEBUG "HARDDOOM GOIN SLEEP\n");
 				wait_for_completion_killable(&data->empty_queue);
 				iowrite32(ioread32(data->bar + INTR_ENABLE) & ~INTR_PONG_ASYNC,
 					data->bar + INTR_ENABLE);
-				//printk(KERN_DEBUG "HARDDOOM WAKE UP\n");
 			}
 		}
 		for(pos = ioread32(data->bar + CMD_WRITE_IDX);
@@ -353,13 +338,10 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 				continue;
 			}
 			if((err = doom_write_cmd(writep, cmds[i], flags, fdata->active_buff))) {
-				//printk(KERN_DEBUG "HARDDOOM dupa0\n");
 				mutex_unlock(&data->io);
 				if(i == 0) return err;
-				//printk(KERN_DEBUG "HARDDOOM partial write %u commands\n", i);
 				return i * sizeof(struct doomdev2_cmd);
 			}
-			//printk(KERN_DEBUG "HARDDOOM dupa1\n");
 			if(data->cmds_to_ping == 0) data->cmds_to_ping = CMD_BUFF_PING_DIST;
 			else --data->cmds_to_ping;
 			if(i + 1 == n) {
@@ -367,12 +349,10 @@ static ssize_t doomfile_write(struct file *file, const char __user *buf, size_t 
 				((struct doombuff_data *)fdata->active_buff.surf_dst->private_data)
 					->fence = data->next_fence;
 			}
-			//printk(KERN_DEBUG "HARDDOOM dupa2\n");
 			iowrite32((pos + 1) % CMD_BUFF_SIZE, data->bar + CMD_WRITE_IDX);
 		}
 	}
 	mutex_unlock(&data->io);
-	//printk(KERN_DEBUG "HARDDOOM written full %ld commands\n", n);
 	return count;
 }
 
@@ -381,7 +361,6 @@ static long doomfile_ioctl(struct file *file, unsigned int cmd, unsigned long ar
 	struct dev_file_data *fdata = (struct dev_file_data*)file->private_data;
 	struct devdata *data = fdata->devdata;
 	struct device *dev = data->doom_device;
-	//printk(KERN_DEBUG "Ioctling yo HARDDOM device!\n");
 	switch (cmd) {
 	case DOOMDEV2_IOCTL_CREATE_SURFACE: {
 		struct doomdev2_ioctl_create_surface *args = (struct doomdev2_ioctl_create_surface *)arg;
@@ -489,27 +468,18 @@ put_surf_dst:
 	return -EINVAL;
 }
 
-/*static inline uint64_t cyc_dist(int a, int b) {
-	const uint64_t N = 1llu<< 32;
-	return (N - a + b) % N;
-}*/
-
 irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 	struct devdata *data = pci_get_drvdata(dev);
 	uint32_t intrs;
 	unsigned long flags;
-	//printk(KERN_DEBUG "HARDOOM interrupt");
 	intrs = ioread32(data->bar + INTR);
 	if(intrs == 0) return IRQ_NONE;
-	//printk(KERN_DEBUG "HARDOOM interrupt: Intr register: 0x%x\n", intrs);
 	if(intrs & INTR_FENCE) {
 		uint64_t af, nf;
 		struct list_head *acc, *pom;
 		struct fence_queue_node *ac_node;
 		struct fput_queue_node *qnode;
-		//printk(KERN_DEBUG "HARDDOOM FENCE\n");
 		iowrite32(INTR_PONG_SYNC, data->bar + INTR);
-		//printk(KERN_DEBUG "HARDDOOM puting buffer file\n");
 		nf = data->fence_q.acc_fence;
 		do {
 			//Free waiting for reading
@@ -519,7 +489,6 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 			nf = af;
 			list_for_each_safe(acc, pom, &data->fence_q.queue) {
 				ac_node = list_entry(acc, struct fence_queue_node, list);
-				//printk(KERN_DEBUG "HARDDOOM fence node: %llu\n", ac_node->fence);
 				if(ac_node->fence <= af) {
 					list_del(&ac_node->list);
 					complete(&ac_node->event);
@@ -532,7 +501,6 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 			while(!list_empty(&data->fput_q)) {
 				qnode = list_first_entry(&data->fput_q, struct fput_queue_node, l);
 				if(qnode->fence > af) break;
-				//printk(KERN_DEBUG "HARDDOOM freeing qnode fence: %llu\n", qnode->fence);
 				list_del(&qnode->l);
 				if(qnode->f.surf_dst != NULL) fput(qnode->f.surf_dst);
 				if(qnode->f.surf_src != NULL) fput(qnode->f.surf_src);
@@ -546,14 +514,11 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 			spin_unlock_irqrestore(&data->fput_queue, flags);
 			iowrite32(lower_32_bits(nf), data->bar + FENCE_WAIT);
 			iowrite32(INTR_FENCE, data->bar + INTR);
-			//printk(KERN_DEBUG "HARDDOOM fence: af = %llu, nf = %llu, counter = %u\n", af, nf, ioread32(data->bar + FENCE_COUNTER));
 		} while (!cyc_between(lower_32_bits(af), lower_32_bits(nf),
 					ioread32(data->bar + FENCE_COUNTER)));
-		//printk(KERN_DEBUG "HARDDOOM FENCE finished af = %llu, nf = %llu counter = %u \n", af, nf, ioread32(data->bar + FENCE_COUNTER));
 	} else if(intrs & INTR_PONG_SYNC) {
 		printk(KERN_WARNING "HARDDOOM INTR_PONG_SYNC sould be disabled\n");
 	} else if(intrs & INTR_PONG_ASYNC) {
-		//printk(KERN_DEBUG "HARDDOOM PING - PONG PONG PONGING!!!");
 		iowrite32(INTR_PONG_ASYNC, data->bar + INTR);
 		complete(&data->empty_queue);
 	} else {
@@ -571,17 +536,14 @@ irqreturn_t doomdev_irq_handler(int irq, void *dev) {
 		if(intrs & INTR_PAGE_FAULT_COLORMAP) strcpy(error, "PAGE_FAULT_COLORMAP");
 		if(intrs & INTR_PAGE_FAULT_TRANMAP) strcpy(error, "PAGE_FAULT_TRANMAP");
 		printk(KERN_ERR "Doom device error: %s. Restarting device.\n", error);
-		//printk(KERN_DEBUG "Intr register: %x\n", intrs);
 		doomdriv_reset_device(data->bar);
 	}
-	//printk(KERN_DEBUG "HARDOOM handled interrupt: Intr register: 0x%x\n", ioread32(data->bar + INTR));
 	return IRQ_HANDLED;
 }
 
 static int harddoom_init(void)
 {
 	int err;
-	//printk(KERN_DEBUG "Initing yo HARDDOOM2 driver!\n");
 	if ((err = alloc_chrdev_region(&doomdev_major, 0, 256, "harddoom")))
 		return err;
 	if ((err = class_register(&doomdev_class))) {
@@ -595,7 +557,6 @@ static int harddoom_init(void)
 
 static void harddoom_cleanup(void)
 {
-	//printk(KERN_DEBUG "Removing yo HARDDOOM2 driver :(\n");
 	pci_unregister_driver(&doomdev_driver);
 	class_unregister(&doomdev_class);
 	unregister_chrdev_region(doomdev_major, 256);
